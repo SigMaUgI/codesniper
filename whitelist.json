@@ -1,4 +1,9 @@
 {
-  "version": 1786569776926,
-  "allowed_users": []
+  "version": 1786570474249,
+  "allowed_users": [
+    {
+      "user_id": "2912583992",
+      "username": "splizz999"
+    }
+  ]
 }
