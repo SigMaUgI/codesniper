@@ -1,5 +1,3 @@
--- CodeSniper V6 - Manual Whitelist
--- Upload whitelist.json to GitHub and put its RAW URL below.
 local WHITELIST_URL = "https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/whitelist.json"
 
 local Players = game:GetService("Players")
