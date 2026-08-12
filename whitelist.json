@@ -1,5 +1,5 @@
 {
-  "version": 1786570522101,
+  "version": 1786571020626,
   "allowed_users": [
     {
       "user_id": "2912583992",
@@ -12,6 +12,10 @@
     {
       "user_id": "5834308394",
       "username": "the_ws08"
+    },
+    {
+      "user_id": "7460830872",
+      "username": "augustodls244"
     }
   ]
 }
