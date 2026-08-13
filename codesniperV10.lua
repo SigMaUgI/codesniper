@@ -112,6 +112,7 @@ local function StartCodeSniper()
     local CopierEnabled = true
     local PrepareEnabled = true
     local AfterSubmitEnabled = true
+local SmartRedeemerEnabled = false
     local SubmitAfter = 3
 
     local WaitingForCode = false
@@ -120,6 +121,11 @@ local function StartCodeSniper()
     local AllCaptured = {}
     local Hooked = {}
     local LastText = {}
+
+local SmartAwaitingResult = false
+local SmartNeedsNextMessage = false
+local SmartRetrying = false
+local SmartAttemptId = 0
 
     -- GAME UI REFERENCES
     local CodesScreen, CodesFrame, CodeRedeemFrame, CodeBox, SubmitButton
@@ -429,7 +435,8 @@ local function StartCodeSniper()
     end
 
     local CapturedPanel = MakePanel("Captured", UDim2.new(1,-470,0.5,-175))
-    local SettingsPanel = MakePanel("Settings", UDim2.new(1,-235,0.5,-175))
+    local SettingsPanel = MakePanel("Settings", UDim2.new(1,-235,0.5,-205))
+SettingsPanel.Size = UDim2.new(0,225,0,445)
 
     local Status = Instance.new("TextLabel", CapturedPanel)
     Status.Size = UDim2.new(1,-24,0,22); Status.Position = UDim2.new(0,12,0,51); Status.BackgroundTransparency = 1
@@ -470,6 +477,7 @@ local function StartCodeSniper()
     local CopierToggle = MakeSwitch("Copier", 53)
     local PrepareToggle = MakeSwitch("Prepare", 94)
     local AfterSubmitToggle, AfterSubmitLabel = MakeSwitch("After Submit", 135)
+local SmartRedeemerToggle, SmartRedeemerLabel
 
     local WIP = Instance.new("TextLabel", SettingsPanel)
     WIP.Size = UDim2.new(0,44,0,18); WIP.Position = UDim2.new(0,101,0,142); WIP.BackgroundTransparency = 1
@@ -503,6 +511,20 @@ local function StartCodeSniper()
 
     AfterSubmitToggle.MouseButton1Click:Connect(function()
         AfterSubmitEnabled = not AfterSubmitEnabled
+
+        if AfterSubmitEnabled and SmartRedeemerEnabled then
+            SmartRedeemerEnabled = false
+            if SmartRedeemerToggle then
+                PaintToggle(SmartRedeemerToggle, false)
+            end
+            SmartAwaitingResult = false
+            SmartNeedsNextMessage = false
+            SmartRetrying = false
+            SmartAttemptId += 1
+            CurrentMessages = {}
+            WaitingForCode = false
+        end
+
         PaintToggle(AfterSubmitToggle, AfterSubmitEnabled)
     end)
 
@@ -534,6 +556,47 @@ local function StartCodeSniper()
         n.BackgroundTransparency = 1; n.Text = tostring(i); n.TextColor3 = GRAY; n.TextSize = 11; n.Font = Enum.Font.GothamMedium
     end
 
+    -- Smart Redeemer sits directly below the Submit After slider.
+    SmartRedeemerToggle, SmartRedeemerLabel = MakeSwitch("Smart Redeemer", 265)
+
+    local SmartWIP = Instance.new("TextLabel", SettingsPanel)
+    SmartWIP.Size = UDim2.new(0,44,0,18)
+    SmartWIP.Position = UDim2.new(0,101,0,272)
+    SmartWIP.BackgroundTransparency = 1
+    SmartWIP.Text = "W.I.P"
+    SmartWIP.TextColor3 = YELLOW
+    SmartWIP.TextSize = 10
+    SmartWIP.Font = Enum.Font.GothamBold
+
+    PaintToggle(SmartRedeemerToggle, SmartRedeemerEnabled)
+
+    SmartRedeemerToggle.MouseButton1Click:Connect(function()
+        SmartRedeemerEnabled = not SmartRedeemerEnabled
+
+        if SmartRedeemerEnabled then
+            -- Smart Redeemer owns submission while enabled.
+            AfterSubmitEnabled = false
+            PaintToggle(AfterSubmitToggle, false)
+        end
+
+        PaintToggle(SmartRedeemerToggle, SmartRedeemerEnabled)
+
+        SmartAwaitingResult = false
+        SmartNeedsNextMessage = false
+        SmartRetrying = false
+        SmartAttemptId += 1
+        CurrentMessages = {}
+        WaitingForCode = false
+
+        if SmartRedeemerEnabled then
+            Status.Text = "Smart Redeemer ON - waiting for 3 messages"
+            Status.TextColor3 = YELLOW
+        else
+            Status.Text = PrepareEnabled and "Waiting for code..." or "Ready to capture..."
+            Status.TextColor3 = GRAY
+        end
+    end)
+
     local dragging = false
     local function SetSlider(x)
         local pct = math.clamp((x-Slider.AbsolutePosition.X)/Slider.AbsoluteSize.X,0,1)
@@ -549,7 +612,7 @@ local function StartCodeSniper()
 
     -- Detection status
     local DetectStatus = Instance.new("TextLabel", SettingsPanel)
-    DetectStatus.Size = UDim2.new(1,-28,0,72); DetectStatus.Position = UDim2.new(0,14,0,270); DetectStatus.BackgroundColor3 = BG2; DetectStatus.BackgroundTransparency = 0.15; DetectStatus.BorderSizePixel = 0
+    DetectStatus.Size = UDim2.new(1,-28,0,72); DetectStatus.Position = UDim2.new(0,14,0,310); DetectStatus.BackgroundColor3 = BG2; DetectStatus.BackgroundTransparency = 0.15; DetectStatus.BorderSizePixel = 0
     DetectStatus.TextColor3 = YELLOW; DetectStatus.TextSize = 11; DetectStatus.Font = Enum.Font.Code; DetectStatus.TextXAlignment = Enum.TextXAlignment.Left; DetectStatus.TextYAlignment = Enum.TextYAlignment.Top; DetectStatus.TextWrapped = true; DetectStatus.ClipsDescendants = true
     local dc = Instance.new("UICorner", DetectStatus); dc.CornerRadius = UDim.new(0,9)
     local dp = Instance.new("UIPadding", DetectStatus); dp.PaddingLeft = UDim.new(0,8); dp.PaddingTop = UDim.new(0,7)
@@ -575,6 +638,10 @@ local function StartCodeSniper()
         AllCaptured = {}
         WaitingForCode = false
         Submitting = false
+    SmartAwaitingResult = false
+    SmartNeedsNextMessage = false
+    SmartRetrying = false
+    SmartAttemptId += 1
 
         for _, child in ipairs(Scroll:GetChildren()) do
             if child:IsA("TextLabel") then
@@ -637,14 +704,14 @@ local function StartCodeSniper()
 
         pcall(function()
             VirtualInputManager:SendMouseButtonEvent(x,y,0,true,game,0)
-            task.wait()
+            
             VirtualInputManager:SendMouseButtonEvent(x,y,0,false,game,0)
         end)
 
         pcall(function()
             box:CaptureFocus()
         end)
-        task.wait()
+        
 
         -- Set the value while focused so the game's textbox listeners see the code.
         pcall(function()
@@ -660,7 +727,7 @@ local function StartCodeSniper()
             end)
         end
 
-        task.wait()
+        
 
         -- Keep focus until ClickSubmit runs. Releasing focus before redeeming can
         -- cause some UIs to clear/ignore their internal code value.
@@ -676,7 +743,7 @@ local function StartCodeSniper()
         pcall(function()
             VirtualInputManager:SendMouseMoveEvent(x,y,game)
             VirtualInputManager:SendMouseButtonEvent(x,y,0,true,game,0)
-            task.wait(0.004)
+            
             VirtualInputManager:SendMouseButtonEvent(x,y,0,false,game,0)
         end)
         pcall(function() button:Activate() end)
@@ -698,45 +765,103 @@ local function StartCodeSniper()
     end
 
     local function AddCode(text)
-        if not CopierEnabled or Submitting then return end
-        text = CleanText(text)
-        if IsBadText(text) then return end
+    if not CopierEnabled or Submitting then return end
+    text = CleanText(text)
+    if IsBadText(text) then return end
 
-        if #CurrentMessages >= SubmitAfter then
-            CurrentMessages = {}
+    -- SMART REDEEMER:
+    -- 1) Capture exactly 3 messages.
+    -- 2) Type the combined code and redeem immediately.
+    -- 3) Every NEW top-screen message after that gets appended to the same
+    --    code, retyped, and redeemed immediately again.
+    if SmartRedeemerEnabled then
+        table.insert(CurrentMessages, text)
+        AddCapture(text)
+
+        if #CurrentMessages < 3 then
+            Status.Text = "Smart captured " .. #CurrentMessages .. "/3"
+            Status.TextColor3 = GREEN
+            TypeIntoCodeBox()
+            return
         end
 
-        table.insert(CurrentMessages,text)
-        AddCapture(text)
-        Status.Text = "Captured " .. #CurrentMessages .. "/" .. SubmitAfter .. " message(s)"
-        Status.TextColor3 = GREEN
-        TypeIntoCodeBox()
+        if #CurrentMessages == 3 then
+            Status.Text = "SMART REDEEMING 3/3..."
+            Status.TextColor3 = GREEN
 
-        if AfterSubmitEnabled and #CurrentMessages == SubmitAfter then
-            Submitting = true
-            Status.Text = "SUBMITTING x10..."; Status.TextColor3 = GREEN
             local typed = TypeIntoCodeBox()
-            task.wait()
-
-            -- Never press Redeem with an empty textbox.
             local liveBox = FindCodeBox()
+
             if typed and liveBox and CleanText(liveBox.Text) ~= "" then
-                SpamSubmit()
+                ClickSubmit()
+                Status.Text = "SMART ACTIVE - waiting for next message..."
+                Status.TextColor3 = YELLOW
             else
-                Status.Text = "Code was not inside redeem box"
+                Status.Text = "Smart code was not inside redeem box"
                 Status.TextColor3 = RED
             end
-            CurrentMessages = {}
-            WaitingForCode = false
-            task.delay(0.1,function()
-                Submitting = false
-                Status.Text = PrepareEnabled and "Waiting for code..." or "Ready to capture..."
-                Status.TextColor3 = GRAY
-            end)
+
+            return
         end
+
+        -- 4th, 5th, 6th... messages:
+        -- append to the SAME first-3-message code and instantly redeem again.
+        Status.Text = "SMART APPEND +" .. tostring(#CurrentMessages - 3)
+        Status.TextColor3 = YELLOW
+
+        local typed = TypeIntoCodeBox()
+        local liveBox = FindCodeBox()
+
+        if typed and liveBox and CleanText(liveBox.Text) ~= "" then
+            ClickSubmit()
+            Status.Text = "SMART ACTIVE - waiting for next message..."
+            Status.TextColor3 = YELLOW
+        else
+            Status.Text = "Smart code was not inside redeem box"
+            Status.TextColor3 = RED
+        end
+
+        return
     end
 
-    local function HandlePopup(obj)
+    -- NORMAL REDEEMER
+    if #CurrentMessages >= SubmitAfter then
+        CurrentMessages = {}
+    end
+
+    table.insert(CurrentMessages,text)
+    AddCapture(text)
+    Status.Text = "Captured " .. #CurrentMessages .. "/" .. SubmitAfter .. " message(s)"
+    Status.TextColor3 = GREEN
+    TypeIntoCodeBox()
+
+    if AfterSubmitEnabled and #CurrentMessages == SubmitAfter then
+        Submitting = true
+        Status.Text = "SUBMITTING x10..."
+        Status.TextColor3 = GREEN
+
+        local typed = TypeIntoCodeBox()
+        local liveBox = FindCodeBox()
+
+        if typed and liveBox and CleanText(liveBox.Text) ~= "" then
+            SpamSubmit()
+        else
+            Status.Text = "Code was not inside redeem box"
+            Status.TextColor3 = RED
+        end
+
+        CurrentMessages = {}
+        WaitingForCode = false
+
+        task.delay(0.1,function()
+            Submitting = false
+            Status.Text = PrepareEnabled and "Waiting for code..." or "Ready to capture..."
+            Status.TextColor3 = GRAY
+        end)
+    end
+end
+
+local function HandlePopup(obj)
         if not CopierEnabled or Submitting or not IsTopArea(obj) then return end
         local text = CleanText(obj.Text)
         if IsBadText(text) or LastText[obj] == text then return end
@@ -762,8 +887,8 @@ local function StartCodeSniper()
         if not obj:IsA("TextLabel") or Hooked[obj] or not IsScreenUI(obj) then return end
         Hooked[obj] = true
         LastText[obj] = CleanText(obj.Text)
-        obj:GetPropertyChangedSignal("Text"):Connect(function() task.defer(function() HandlePopup(obj) end) end)
-        obj:GetPropertyChangedSignal("Visible"):Connect(function() if obj.Visible then task.defer(function() HandlePopup(obj) end) end end)
+        obj:GetPropertyChangedSignal("Text"):Connect(function() task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj) end) end)
+        obj:GetPropertyChangedSignal("Visible"):Connect(function() if obj.Visible then task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj) end) end end)
     end
 
     for _,obj in ipairs(PlayerGui:GetDescendants()) do if obj:IsA("TextLabel") then Hook(obj) end end
@@ -776,8 +901,8 @@ local function StartCodeSniper()
             if not IsScreenUI(obj) then return end
             Hooked[obj] = true
             LastText[obj] = ""
-            obj:GetPropertyChangedSignal("Text"):Connect(function() task.defer(function() HandlePopup(obj) end) end)
-            obj:GetPropertyChangedSignal("Visible"):Connect(function() if obj.Visible then task.defer(function() HandlePopup(obj) end) end end)
+            obj:GetPropertyChangedSignal("Text"):Connect(function() task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj) end) end)
+            obj:GetPropertyChangedSignal("Visible"):Connect(function() if obj.Visible then task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj) end) end end)
             HandlePopup(obj)
         end)
     end)
