@@ -669,8 +669,34 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     -- Prepare phrases
     local TriggerPhrases = {
-        "THE CODE IS", "THE CODE:", "OK HERE'S THE CODE", "OK HERES THE CODE", "OK, HERE'S THE CODE", "OK, HERES THE CODE",
-        "HERE'S THE CODE", "HERES THE CODE", "YOUR CODE IS", "YOUR CODE:", "CODE IS", "CODE:"
+        "THE CODE IS",
+        "THE CODE:",
+        "USE CODE",
+        "USE THE CODE",
+        "USE THIS CODE",
+        "OK HERE'S THE CODE",
+        "OK HERES THE CODE",
+        "OK, HERE'S THE CODE",
+        "OK, HERES THE CODE",
+        "HERE'S THE CODE",
+        "HERES THE CODE",
+        "YOUR CODE IS",
+        "YOUR CODE:",
+        "CODE IS",
+        "CODE:",
+        "REDEEM CODE",
+        "REDEEM THIS CODE",
+        "ENTER CODE",
+        "ENTER THIS CODE",
+        "TYPE THIS CODE",
+        "TRY THIS CODE",
+        "PUT IN CODE",
+        "PUT THIS CODE IN",
+        "USE THIS",
+        "THE REDEEM CODE IS",
+        "REDEEM WITH",
+        "CLAIM WITH CODE",
+        "CLAIM THIS CODE"
     }
 
     local function FindTrigger(text)
@@ -872,10 +898,22 @@ local function HandlePopup(obj)
         if not WaitingForCode then
             local phrase,_,b = FindTrigger(text)
             if not phrase then return end
+
             WaitingForCode = true
-            Status.Text = "Code detected..."; Status.TextColor3 = GREEN
+            Status.Text = "Code detected..."
+            Status.TextColor3 = GREEN
+
+            -- If the trigger and the first code piece are in the same message,
+            -- immediately capture everything after the trigger phrase.
             local remaining = text:sub(b+1):gsub("^[%s:%-%.]+","")
-            if remaining ~= "" and remaining ~= "..." and remaining ~= "…" then AddCode(remaining) end
+
+            if remaining ~= "" and remaining ~= "..." and remaining ~= "…" then
+                AddCode(remaining)
+            elseif SmartRedeemerEnabled then
+                Status.Text = "Smart Redeemer waiting for code messages..."
+                Status.TextColor3 = YELLOW
+            end
+
             return
         end
 
