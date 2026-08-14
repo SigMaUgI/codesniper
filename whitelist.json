@@ -1,5 +1,5 @@
 {
-  "version": 1786676179000,
+  "version": 1786676203207,
   "allowed_users": [
     {
       "user_id": "2912583992",
@@ -28,6 +28,10 @@
     {
       "user_id": "3895734269",
       "username": "Adsasd2319"
+    },
+    {
+      "user_id": "10134022984",
+      "username": "Splizzirino"
     }
   ]
 }
