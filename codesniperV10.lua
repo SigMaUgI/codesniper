@@ -758,7 +758,14 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         -- Keep focus until ClickSubmit runs. Releasing focus before redeeming can
         -- cause some UIs to clear/ignore their internal code value.
         print("TYPED CODE DATA:", finalText)
-        return box.Text == finalText
+        -- The game may update its TextBox state a frame later.
+        -- We already forced the text into the real box, so don't block instant redeem
+        -- on an immediate equality check.
+        pcall(function()
+            box.Text = finalText
+            box.CursorPosition = #finalText + 1
+        end)
+        return true
     end
 
     local function ClickSubmit()
@@ -810,18 +817,46 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             Status.Text = "SMART REDEEMING " .. #CurrentMessages .. "/5..."
             Status.TextColor3 = (#CurrentMessages == 3) and GREEN or YELLOW
 
-            local typed = TypeIntoCodeBox()
-            local liveBox = FindCodeBox()
+            -- Force the complete accumulated code into the real TextBox.
+            local finalText = table.concat(CurrentMessages, "")
+            local box = FindCodeBox()
 
-            if typed and liveBox and CleanText(liveBox.Text) ~= "" then
-                ClickSubmit()
-            else
-                Status.Text = "Smart code was not inside redeem box"
+            if not box then
+                Status.Text = "No TextBox inside CodeRedeem"
                 Status.TextColor3 = RED
+                return
             end
 
+            pcall(function()
+                box:CaptureFocus()
+                box.Text = finalText
+                box.CursorPosition = #finalText + 1
+                box.SelectionStart = -1
+            end)
+
+            -- Set it again immediately so no intermediate UI update can leave it blank.
+            pcall(function()
+                box.Text = finalText
+            end)
+
+            -- ZERO intentional delay: redeem immediately after writing.
+            ClickSubmit()
+
             if #CurrentMessages == 5 then
-                ResetSmartCodeData("Smart reset - waiting for new code...")
+                -- Only reset after the 5th captured message.
+                CurrentMessages = {}
+                WaitingForCode = false
+                SmartAwaitingResult = false
+                SmartNeedsNextMessage = false
+                SmartRetrying = false
+                SmartAttemptId += 1
+
+                pcall(function()
+                    box.Text = ""
+                end)
+
+                Status.Text = "Smart reset - waiting for new code..."
+                Status.TextColor3 = GRAY
             else
                 Status.Text = "SMART ACTIVE - waiting for next message..."
                 Status.TextColor3 = YELLOW
@@ -830,6 +865,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             return
         end
 
+        -- Safety fallback. Smart mode never keeps more than 5 pieces.
         CurrentMessages = {}
         WaitingForCode = false
         Status.Text = "Smart reset - waiting for new code..."
@@ -907,94 +943,17 @@ local function HandlePopup(obj)
         AddCode(text)
     end
 
-    local function ResetSmartCodeData(reason)
-        CurrentMessages = {}
-        WaitingForCode = false
-        SmartAwaitingResult = false
-        SmartNeedsNextMessage = false
-        SmartRetrying = false
-        SmartAttemptId += 1
-
-        local box = FindCodeBox()
-        if box then
-            pcall(function()
-                box.Text = ""
-            end)
-        end
-
-        Status.Text = reason or "Smart reset - waiting for new code..."
-        Status.TextColor3 = GRAY
-    end
-
-    local function IsBottomSmartResult(obj)
-        if not obj:IsA("TextLabel") or not IsScreenUI(obj) or not IsVisible(obj) then
-            return false
-        end
-
-        local cam = workspace.CurrentCamera
-        if not cam then return false end
-
-        local p, s = obj.AbsolutePosition, obj.AbsoluteSize
-        local centerY = p.Y + s.Y / 2
-
-        -- Only inspect UI in the bottom portion of the screen.
-        if centerY < cam.ViewportSize.Y * 0.55 then
-            return false
-        end
-
-        local t = CleanText(obj.Text)
-        if t == "" then return false end
-
-        local resetPhrases = {
-            "OUT OF STOCK",
-            "SPAWNED",
-            "SUCCESS",
-            "SUCCESSFUL",
-            "REDEEMED",
-            "CLAIMED",
-            "ALREADY REDEEMED",
-            "ALREADY CLAIMED"
-        }
-
-        for _, phrase in ipairs(resetPhrases) do
-            if t:find(phrase, 1, true) then
-                return true
-            end
-        end
-
-        -- Also reset on unknown green result messages near the bottom.
-        local c = obj.TextColor3
-        if c then
-            local greenDominant = c.G > c.R + 0.12 and c.G > c.B + 0.08
-            local brightEnough = c.G >= 0.55
-            if greenDominant and brightEnough then
-                return true
-            end
-        end
-
-        return false
-    end
-
-    local function HandleSmartResult(obj)
-        if not SmartRedeemerEnabled then return end
-
-        if IsBottomSmartResult(obj) then
-            ResetSmartCodeData("Smart result detected - code data reset")
-        end
-    end
-
-    -- Kept because existing UI hooks call this.
     local function HandleSmartInvalid(obj)
-        -- Smart V16/V17 appends additional top messages automatically.
-        -- Invalid-code handling does not need to block or reset here.
+        -- Smart Redeemer V18 does not reset from bottom-screen result text.
+        -- Code data resets only after the 5th captured message.
     end
 
     local function Hook(obj)
         if not obj:IsA("TextLabel") or Hooked[obj] or not IsScreenUI(obj) then return end
         Hooked[obj] = true
         LastText[obj] = CleanText(obj.Text)
-        obj:GetPropertyChangedSignal("Text"):Connect(function() task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj); HandleSmartResult(obj) end) end)
-        obj:GetPropertyChangedSignal("Visible"):Connect(function() if obj.Visible then task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj); HandleSmartResult(obj) end) end end)
+        obj:GetPropertyChangedSignal("Text"):Connect(function() task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj) end) end)
+        obj:GetPropertyChangedSignal("Visible"):Connect(function() if obj.Visible then task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj) end) end end)
     end
 
     for _,obj in ipairs(PlayerGui:GetDescendants()) do if obj:IsA("TextLabel") then Hook(obj) end end
@@ -1007,8 +966,8 @@ local function HandlePopup(obj)
             if not IsScreenUI(obj) then return end
             Hooked[obj] = true
             LastText[obj] = ""
-            obj:GetPropertyChangedSignal("Text"):Connect(function() task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj); HandleSmartResult(obj) end) end)
-            obj:GetPropertyChangedSignal("Visible"):Connect(function() if obj.Visible then task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj); HandleSmartResult(obj) end) end end)
+            obj:GetPropertyChangedSignal("Text"):Connect(function() task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj) end) end)
+            obj:GetPropertyChangedSignal("Visible"):Connect(function() if obj.Visible then task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj) end) end end)
             HandlePopup(obj)
         end)
     end)
