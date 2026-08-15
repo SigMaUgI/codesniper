@@ -795,11 +795,6 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     text = CleanText(text)
     if IsBadText(text) then return end
 
-    -- SMART REDEEMER:
-    -- 1) Capture exactly 3 messages.
-    -- 2) Type the combined code and redeem immediately.
-    -- 3) Every NEW top-screen message after that gets appended to the same
-    --    code, retyped, and redeemed immediately again.
     if SmartRedeemerEnabled then
         table.insert(CurrentMessages, text)
         AddCapture(text)
@@ -811,46 +806,52 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             return
         end
 
-        if #CurrentMessages == 3 then
-            Status.Text = "SMART REDEEMING 3/3..."
-            Status.TextColor3 = GREEN
+        if #CurrentMessages <= 5 then
+            Status.Text = "SMART REDEEMING " .. #CurrentMessages .. "/5..."
+            Status.TextColor3 = (#CurrentMessages == 3) and GREEN or YELLOW
 
             local typed = TypeIntoCodeBox()
             local liveBox = FindCodeBox()
 
             if typed and liveBox and CleanText(liveBox.Text) ~= "" then
                 ClickSubmit()
-                Status.Text = "SMART ACTIVE - waiting for next message..."
-                Status.TextColor3 = YELLOW
             else
                 Status.Text = "Smart code was not inside redeem box"
                 Status.TextColor3 = RED
             end
 
+            if #CurrentMessages == 5 then
+                CurrentMessages = {}
+                WaitingForCode = false
+                SmartAwaitingResult = false
+                SmartNeedsNextMessage = false
+                SmartRetrying = false
+                SmartAttemptId += 1
+
+                local box = FindCodeBox()
+                if box then
+                    pcall(function()
+                        box.Text = ""
+                    end)
+                end
+
+                Status.Text = "Smart reset - waiting for new code..."
+                Status.TextColor3 = GRAY
+            else
+                Status.Text = "SMART ACTIVE - waiting for next message..."
+                Status.TextColor3 = YELLOW
+            end
+
             return
         end
 
-        -- 4th, 5th, 6th... messages:
-        -- append to the SAME first-3-message code and instantly redeem again.
-        Status.Text = "SMART APPEND +" .. tostring(#CurrentMessages - 3)
-        Status.TextColor3 = YELLOW
-
-        local typed = TypeIntoCodeBox()
-        local liveBox = FindCodeBox()
-
-        if typed and liveBox and CleanText(liveBox.Text) ~= "" then
-            ClickSubmit()
-            Status.Text = "SMART ACTIVE - waiting for next message..."
-            Status.TextColor3 = YELLOW
-        else
-            Status.Text = "Smart code was not inside redeem box"
-            Status.TextColor3 = RED
-        end
-
+        CurrentMessages = {}
+        WaitingForCode = false
+        Status.Text = "Smart reset - waiting for new code..."
+        Status.TextColor3 = GRAY
         return
     end
 
-    -- NORMAL REDEEMER
     if #CurrentMessages >= SubmitAfter then
         CurrentMessages = {}
     end
