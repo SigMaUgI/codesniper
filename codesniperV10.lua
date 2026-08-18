@@ -104,16 +104,101 @@ local function StartCodeSniper()
     local Players = game:GetService("Players")
     local UserInputService = game:GetService("UserInputService")
     local VirtualInputManager = game:GetService("VirtualInputManager")
+local TeleportService = game:GetService("TeleportService")
 
     local Player = Players.LocalPlayer
     local PlayerGui = Player:WaitForChild("PlayerGui")
 
     -- SETTINGS
     local CopierEnabled = true
+    local RiddleSolverEnabled = false
+    local AIKey = ""
+    local AIEndpoint = "https://api.openai.com/v1/chat/completions"
+    local AIModel = "gpt-4.1-mini"
     local PrepareEnabled = true
     local AfterSubmitEnabled = true
-local SmartRedeemerEnabled = false
+    local SmartRedeemerEnabled = false
     local SubmitAfter = 3
+
+    -- V18 contains no Radar / Player Highlight implementation.
+    -- Keep those features explicitly disabled.
+    local RadarEnabled = false
+    local PlayerHighlightEnabled = false
+
+    -- Persistent UI/settings preferences (executor file APIs when supported).
+    local PREF_FILE = "codesniper_preferences.json"
+    local MenuVisible = true
+    local MenuXScale, MenuXOffset = 0.5, -235
+    local MenuYScale, MenuYOffset = 0.5, -222
+
+    local function LoadPreferences()
+        if not isfile or not readfile or not isfile(PREF_FILE) then
+            return
+        end
+
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(readfile(PREF_FILE))
+        end)
+
+        if not ok or type(data) ~= "table" then
+            return
+        end
+
+        if type(data.CopierEnabled) == "boolean" then CopierEnabled = data.CopierEnabled end
+        if type(data.RiddleSolverEnabled) == "boolean" then RiddleSolverEnabled = data.RiddleSolverEnabled end
+        if type(data.AIKey) == "string" then AIKey = data.AIKey end
+        if type(data.AIEndpoint) == "string" and data.AIEndpoint ~= "" then AIEndpoint = data.AIEndpoint end
+        if type(data.AIModel) == "string" and data.AIModel ~= "" then AIModel = data.AIModel end
+        if type(data.PrepareEnabled) == "boolean" then PrepareEnabled = data.PrepareEnabled end
+        if type(data.AfterSubmitEnabled) == "boolean" then AfterSubmitEnabled = data.AfterSubmitEnabled end
+        if type(data.SmartRedeemerEnabled) == "boolean" then SmartRedeemerEnabled = data.SmartRedeemerEnabled end
+        if type(data.SubmitAfter) == "number" then
+            SubmitAfter = math.clamp(math.floor(data.SubmitAfter), 1, 5)
+        end
+        if type(data.MenuVisible) == "boolean" then MenuVisible = data.MenuVisible end
+        if type(data.MenuXScale) == "number" then MenuXScale = data.MenuXScale end
+        if type(data.MenuXOffset) == "number" then MenuXOffset = data.MenuXOffset end
+        if type(data.MenuYScale) == "number" then MenuYScale = data.MenuYScale end
+        if type(data.MenuYOffset) == "number" then MenuYOffset = data.MenuYOffset end
+    end
+
+    local MenuRoot
+
+    local function SavePreferences()
+        if not writefile then
+            return
+        end
+
+        if MenuRoot then
+            MenuXScale = MenuRoot.Position.X.Scale
+            MenuXOffset = MenuRoot.Position.X.Offset
+            MenuYScale = MenuRoot.Position.Y.Scale
+            MenuYOffset = MenuRoot.Position.Y.Offset
+        end
+
+        local data = {
+            CopierEnabled = CopierEnabled,
+            RiddleSolverEnabled = RiddleSolverEnabled,
+            AIKey = AIKey,
+            AIEndpoint = AIEndpoint,
+            AIModel = AIModel,
+            PrepareEnabled = PrepareEnabled,
+            AfterSubmitEnabled = AfterSubmitEnabled,
+            SmartRedeemerEnabled = SmartRedeemerEnabled,
+            SubmitAfter = SubmitAfter,
+            MenuVisible = MenuVisible,
+            MenuXScale = MenuXScale,
+            MenuXOffset = MenuXOffset,
+            MenuYScale = MenuYScale,
+            MenuYOffset = MenuYOffset
+        }
+
+        pcall(function()
+            writefile(PREF_FILE, HttpService:JSONEncode(data))
+        end)
+    end
+
+    LoadPreferences()
 
     local WaitingForCode = false
     local Submitting = false
@@ -126,6 +211,19 @@ local SmartAwaitingResult = false
 local SmartNeedsNextMessage = false
 local SmartRetrying = false
 local SmartAttemptId = 0
+
+    -- Riddle Solver state
+    local RiddleActive = false
+    local RiddleAnswers = {}
+    local RiddleFacts = {
+        name = nil,
+        weight = nil,
+        age = nil,
+        color = nil,
+        number = nil,
+        birthday = nil
+    }
+    local RiddleLastText = {}
 
     -- GAME UI REFERENCES
     local CodesScreen, CodesFrame, CodeRedeemFrame, CodeBox, SubmitButton
@@ -339,6 +437,175 @@ local SmartAttemptId = 0
         return nil
     end
 
+    -- Main movable menu container
+    MenuRoot = Instance.new("Frame")
+    MenuRoot.Name = "MenuRoot"
+    MenuRoot.Size = UDim2.new(0,470,0,445)
+    MenuRoot.Position = UDim2.new(MenuXScale, MenuXOffset, MenuYScale, MenuYOffset)
+    MenuRoot.BackgroundTransparency = 1
+    MenuRoot.Visible = MenuVisible
+    MenuRoot.Active = true
+    MenuRoot.Parent = Gui
+
+    local MenuToggle = Instance.new("TextButton")
+    MenuToggle.Name = "MenuToggle"
+    MenuToggle.Size = UDim2.new(0,122,0,34)
+    MenuToggle.Position = UDim2.new(0,14,0,14)
+    MenuToggle.BackgroundColor3 = BG
+    MenuToggle.BorderSizePixel = 0
+    MenuToggle.Text = MenuVisible and "CLOSE MENU" or "OPEN MENU"
+    MenuToggle.TextColor3 = WHITE
+    MenuToggle.TextSize = 12
+    MenuToggle.Font = Enum.Font.GothamBold
+    MenuToggle.Parent = Gui
+    local menuToggleCorner = Instance.new("UICorner", MenuToggle)
+    menuToggleCorner.CornerRadius = UDim.new(0,10)
+    local menuToggleStroke = Instance.new("UIStroke", MenuToggle)
+    menuToggleStroke.Color = ORANGE
+    menuToggleStroke.Transparency = 0.25
+    AddAnimatedGradient(MenuToggle, 0.01)
+
+    MenuToggle.MouseButton1Click:Connect(function()
+        MenuVisible = not MenuVisible
+        MenuRoot.Visible = MenuVisible
+        MenuToggle.Text = MenuVisible and "CLOSE MENU" or "OPEN MENU"
+        SavePreferences()
+    end)
+
+    -- Always-visible mobile-friendly Server Hop button.
+    local ServerHopButton = Instance.new("TextButton")
+    ServerHopButton.Name = "ServerHop"
+    ServerHopButton.Size = UDim2.new(0,96,0,30)
+    ServerHopButton.Position = UDim2.new(0.5,-48,0,12)
+    ServerHopButton.BackgroundColor3 = BG
+    ServerHopButton.BorderSizePixel = 0
+    ServerHopButton.Text = "SERVER HOP"
+    ServerHopButton.TextColor3 = WHITE
+    ServerHopButton.TextSize = 10
+    ServerHopButton.Font = Enum.Font.GothamBold
+    ServerHopButton.ZIndex = 200
+    ServerHopButton.Parent = Gui
+
+    local serverHopCorner = Instance.new("UICorner", ServerHopButton)
+    serverHopCorner.CornerRadius = UDim.new(0,9)
+
+    local serverHopStroke = Instance.new("UIStroke", ServerHopButton)
+    serverHopStroke.Color = ORANGE
+    serverHopStroke.Transparency = 0.2
+    serverHopStroke.Thickness = 1.2
+
+    AddAnimatedGradient(ServerHopButton, 0.01)
+
+    local hopping = false
+
+    local function TryServerHop()
+        if hopping then return end
+        hopping = true
+        ServerHopButton.Text = "HOPPING..."
+
+        local placeId = game.PlaceId
+        local currentJobId = game.JobId
+
+        local ok, err = pcall(function()
+            local HttpService = game:GetService("HttpService")
+            local cursor = ""
+
+            for _ = 1, 6 do
+                local url = "https://games.roblox.com/v1/games/" .. tostring(placeId)
+                    .. "/servers/Public?sortOrder=Asc&limit=100"
+
+                if cursor ~= "" then
+                    url = url .. "&cursor=" .. HttpService:UrlEncode(cursor)
+                end
+
+                local body = game:HttpGet(url)
+                local data = HttpService:JSONDecode(body)
+
+                if data and type(data.data) == "table" then
+                    for _, server in ipairs(data.data) do
+                        if server.id ~= currentJobId
+                        and tonumber(server.playing or 0) < tonumber(server.maxPlayers or 0) then
+                            TeleportService:TeleportToPlaceInstance(placeId, server.id, Player)
+                            return
+                        end
+                    end
+                end
+
+                cursor = data and data.nextPageCursor or ""
+                if not cursor or cursor == "" then
+                    break
+                end
+            end
+
+            -- Fallback if no different public instance is found.
+            TeleportService:Teleport(placeId, Player)
+        end)
+
+        if not ok then
+            warn("Server Hop failed:", err)
+            ServerHopButton.Text = "SERVER HOP"
+            hopping = false
+        else
+            task.delay(3, function()
+                if ServerHopButton and ServerHopButton.Parent then
+                    ServerHopButton.Text = "SERVER HOP"
+                    hopping = false
+                end
+            end)
+        end
+    end
+
+    ServerHopButton.MouseButton1Click:Connect(TryServerHop)
+
+    -- Invisible drag zone across the top of the entire menu.
+    local MenuDragZone = Instance.new("Frame")
+    MenuDragZone.Name = "MenuDragZone"
+    MenuDragZone.Size = UDim2.new(1,0,0,46)
+    MenuDragZone.BackgroundTransparency = 1
+    MenuDragZone.Active = true
+    MenuDragZone.ZIndex = 50
+    MenuDragZone.Parent = MenuRoot
+
+    do
+        local draggingMenu = false
+        local dragStart
+        local startPos
+        local dragInput
+
+        MenuDragZone.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+                draggingMenu = true
+                dragStart = input.Position
+                startPos = MenuRoot.Position
+
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        draggingMenu = false
+                        SavePreferences()
+                    end
+                end)
+            end
+        end)
+
+        MenuDragZone.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+                dragInput = input
+            end
+        end)
+
+        UserInputService.InputChanged:Connect(function(input)
+            if draggingMenu and input == dragInput then
+                local delta = input.Position - dragStart
+                MenuRoot.Position = UDim2.new(
+                    startPos.X.Scale, startPos.X.Offset + delta.X,
+                    startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                )
+            end
+        end)
+    end
+
     -- UI helpers
     local function MakePanel(title, pos)
         local f = Instance.new("Frame")
@@ -348,7 +615,7 @@ local SmartAttemptId = 0
         f.BackgroundTransparency = 0.03
         f.BorderSizePixel = 0
         f.Active = true
-        f.Parent = Gui
+        f.Parent = MenuRoot
 
         local c = Instance.new("UICorner", f); c.CornerRadius = UDim.new(0,14)
         local st = Instance.new("UIStroke", f); st.Color = ORANGE; st.Transparency = 0.15; st.Thickness = 1.5
@@ -400,8 +667,8 @@ local SmartAttemptId = 0
         local dragInput
 
         top.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch then
+            if false and (input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch) then
                 draggingPanel = true
                 dragStart = input.Position
                 startPos = f.Position
@@ -434,9 +701,9 @@ local SmartAttemptId = 0
         return f
     end
 
-    local CapturedPanel = MakePanel("Captured", UDim2.new(1,-470,0.5,-175))
-    local SettingsPanel = MakePanel("Settings", UDim2.new(1,-235,0.5,-205))
-SettingsPanel.Size = UDim2.new(0,225,0,445)
+    local CapturedPanel = MakePanel("Captured", UDim2.new(0,0,0,0))
+    local SettingsPanel = MakePanel("Settings", UDim2.new(0,235,0,0))
+SettingsPanel.Size = UDim2.new(0,225,0,585)
 
     local Status = Instance.new("TextLabel", CapturedPanel)
     Status.Size = UDim2.new(1,-24,0,22); Status.Position = UDim2.new(0,12,0,51); Status.BackgroundTransparency = 1
@@ -474,13 +741,28 @@ SettingsPanel.Size = UDim2.new(0,225,0,445)
         return b, l
     end
 
-    local CopierToggle = MakeSwitch("Copier", 53)
-    local PrepareToggle = MakeSwitch("Prepare", 94)
-    local AfterSubmitToggle, AfterSubmitLabel = MakeSwitch("After Submit", 135)
+    local CopierToggle, CopierLabel = MakeSwitch("Copier", 53)
+    CopierLabel.Visible = false
+    CopierToggle.Size = UDim2.new(0,94,0,32)
+    CopierToggle.Position = UDim2.new(0,14,0,53)
+    CopierToggle.Text = CopierEnabled and "COPIER ON" or "COPIER OFF"
+
+    local RiddleToggle = Instance.new("TextButton", SettingsPanel)
+    RiddleToggle.Size = UDim2.new(0,103,0,32)
+    RiddleToggle.Position = UDim2.new(0,108,0,53)
+    RiddleToggle.BorderSizePixel = 0
+    RiddleToggle.AutoButtonColor = false
+    RiddleToggle.TextColor3 = WHITE
+    RiddleToggle.TextSize = 10
+    RiddleToggle.Font = Enum.Font.GothamBold
+    local riddleCorner = Instance.new("UICorner", RiddleToggle)
+    riddleCorner.CornerRadius = UDim.new(1,0)
+    local PrepareToggle = MakeSwitch("Prepare", 220)
+    local AfterSubmitToggle, AfterSubmitLabel = MakeSwitch("After Submit", 261)
 local SmartRedeemerToggle, SmartRedeemerLabel
 
     local WIP = Instance.new("TextLabel", SettingsPanel)
-    WIP.Size = UDim2.new(0,44,0,18); WIP.Position = UDim2.new(0,101,0,142); WIP.BackgroundTransparency = 1
+    WIP.Size = UDim2.new(0,44,0,18); WIP.Position = UDim2.new(0,101,0,268); WIP.BackgroundTransparency = 1
     WIP.Text = "W.I.P"; WIP.TextColor3 = YELLOW; WIP.TextSize = 10; WIP.Font = Enum.Font.GothamBold
 
     local function PaintToggle(button, enabled)
@@ -489,22 +771,183 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     end
 
     PaintToggle(CopierToggle, CopierEnabled)
+    RiddleToggle.Text = RiddleSolverEnabled and "RIDDLE ON" or "RIDDLE SOLVER"
+    RiddleToggle.BackgroundColor3 = RiddleSolverEnabled and GREEN or RED
+
+    local APIKeyLabel = Instance.new("TextLabel", SettingsPanel)
+    APIKeyLabel.Size = UDim2.new(1,-28,0,18)
+    APIKeyLabel.Position = UDim2.new(0,14,0,92)
+    APIKeyLabel.BackgroundTransparency = 1
+    APIKeyLabel.Text = "AI API Key"
+    APIKeyLabel.TextColor3 = WHITE
+    APIKeyLabel.TextSize = 11
+    APIKeyLabel.Font = Enum.Font.GothamBold
+    APIKeyLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+    local APIKeyBox = Instance.new("TextBox", SettingsPanel)
+    APIKeyBox.Size = UDim2.new(1,-28,0,30)
+    APIKeyBox.Position = UDim2.new(0,14,0,112)
+    APIKeyBox.BackgroundColor3 = BG2
+    APIKeyBox.BorderSizePixel = 0
+    APIKeyBox.Text = AIKey
+    APIKeyBox.PlaceholderText = "Paste API key..."
+    APIKeyBox.PlaceholderColor3 = GRAY
+    APIKeyBox.TextColor3 = WHITE
+    APIKeyBox.TextSize = 10
+    APIKeyBox.Font = Enum.Font.Code
+    APIKeyBox.ClearTextOnFocus = false
+    APIKeyBox.TextTruncate = Enum.TextTruncate.AtEnd
+    local apiKeyCorner = Instance.new("UICorner", APIKeyBox)
+    apiKeyCorner.CornerRadius = UDim.new(0,8)
+
+    local APIEndpointBox = Instance.new("TextBox", SettingsPanel)
+    APIEndpointBox.Size = UDim2.new(1,-28,0,28)
+    APIEndpointBox.Position = UDim2.new(0,14,0,148)
+    APIEndpointBox.BackgroundColor3 = BG2
+    APIEndpointBox.BorderSizePixel = 0
+    APIEndpointBox.Text = AIEndpoint
+    APIEndpointBox.PlaceholderText = "API endpoint"
+    APIEndpointBox.PlaceholderColor3 = GRAY
+    APIEndpointBox.TextColor3 = WHITE
+    APIEndpointBox.TextSize = 9
+    APIEndpointBox.Font = Enum.Font.Code
+    APIEndpointBox.ClearTextOnFocus = false
+    APIEndpointBox.TextTruncate = Enum.TextTruncate.AtEnd
+    local apiEndpointCorner = Instance.new("UICorner", APIEndpointBox)
+    apiEndpointCorner.CornerRadius = UDim.new(0,8)
+
+    local APIModelBox = Instance.new("TextBox", SettingsPanel)
+    APIModelBox.Size = UDim2.new(1,-102,0,28)
+    APIModelBox.Position = UDim2.new(0,14,0,182)
+    APIModelBox.BackgroundColor3 = BG2
+    APIModelBox.BorderSizePixel = 0
+    APIModelBox.Text = AIModel
+    APIModelBox.PlaceholderText = "Model"
+    APIModelBox.PlaceholderColor3 = GRAY
+    APIModelBox.TextColor3 = WHITE
+    APIModelBox.TextSize = 10
+    APIModelBox.Font = Enum.Font.Code
+    APIModelBox.ClearTextOnFocus = false
+    APIModelBox.TextTruncate = Enum.TextTruncate.AtEnd
+    local apiModelCorner = Instance.new("UICorner", APIModelBox)
+    apiModelCorner.CornerRadius = UDim.new(0,8)
+
+    local ClearAPIKeyButton = Instance.new("TextButton", SettingsPanel)
+    ClearAPIKeyButton.Size = UDim2.new(0,82,0,28)
+    ClearAPIKeyButton.Position = UDim2.new(1,-96,0,182)
+    ClearAPIKeyButton.BackgroundColor3 = RED
+    ClearAPIKeyButton.BorderSizePixel = 0
+    ClearAPIKeyButton.Text = "CLEAR KEY"
+    ClearAPIKeyButton.TextColor3 = WHITE
+    ClearAPIKeyButton.TextSize = 9
+    ClearAPIKeyButton.Font = Enum.Font.GothamBold
+    local clearKeyCorner = Instance.new("UICorner", ClearAPIKeyButton)
+    clearKeyCorner.CornerRadius = UDim.new(0,8)
+
+    local function RefreshAISettings()
+        AIKey = APIKeyBox.Text:gsub("^%s+",""):gsub("%s+$","")
+        AIEndpoint = APIEndpointBox.Text:gsub("^%s+",""):gsub("%s+$","")
+        AIModel = APIModelBox.Text:gsub("^%s+",""):gsub("%s+$","")
+
+        if AIEndpoint == "" then
+            AIEndpoint = "https://api.openai.com/v1/chat/completions"
+            APIEndpointBox.Text = AIEndpoint
+        end
+        if AIModel == "" then
+            AIModel = "gpt-4.1-mini"
+            APIModelBox.Text = AIModel
+        end
+        SavePreferences()
+    end
+
+    APIKeyBox.FocusLost:Connect(RefreshAISettings)
+    APIEndpointBox.FocusLost:Connect(RefreshAISettings)
+    APIModelBox.FocusLost:Connect(RefreshAISettings)
+
+    ClearAPIKeyButton.MouseButton1Click:Connect(function()
+        AIKey = ""
+        APIKeyBox.Text = ""
+        RiddleSolverEnabled = false
+        RiddleActive = false
+        RiddleAnswers = {}
+        RiddleToggle.Text = "RIDDLE SOLVER"
+        RiddleToggle.BackgroundColor3 = RED
+        SavePreferences()
+        Status.Text = "API key cleared - Riddle Solver locked"
+        Status.TextColor3 = RED
+    end)
     PaintToggle(PrepareToggle, PrepareEnabled)
     PaintToggle(AfterSubmitToggle, AfterSubmitEnabled)
 
     CopierToggle.MouseButton1Click:Connect(function()
         CopierEnabled = not CopierEnabled
-        PaintToggle(CopierToggle, CopierEnabled)
-        if not CopierEnabled then
-            CurrentMessages = {}; WaitingForCode = false; Status.Text = "Copier disabled"; Status.TextColor3 = RED
-        else
-            Status.Text = PrepareEnabled and "Waiting for code..." or "Ready to capture..."; Status.TextColor3 = GRAY
+
+        if CopierEnabled and RiddleSolverEnabled then
+            RiddleSolverEnabled = false
+            RiddleActive = false
+            RiddleAnswers = {}
+            RiddleToggle.Text = "RIDDLE SOLVER"
+            RiddleToggle.BackgroundColor3 = RED
         end
+
+        CopierToggle.Text = CopierEnabled and "COPIER ON" or "COPIER OFF"
+        CopierToggle.BackgroundColor3 = CopierEnabled and GREEN or RED
+        SavePreferences()
+
+        if not CopierEnabled then
+            CurrentMessages = {}
+            WaitingForCode = false
+            Status.Text = "Copier disabled"
+            Status.TextColor3 = RED
+        else
+            Status.Text = PrepareEnabled and "Waiting for code..." or "Ready to capture..."
+            Status.TextColor3 = GRAY
+        end
+    end)
+
+    RiddleToggle.MouseButton1Click:Connect(function()
+        RefreshAISettings()
+
+        if not RiddleSolverEnabled and AIKey == "" then
+            RiddleToggle.Text = "KEY REQUIRED"
+            RiddleToggle.BackgroundColor3 = RED
+            Status.Text = "Paste an API key before enabling Riddle Solver"
+            Status.TextColor3 = RED
+            return
+        end
+
+        RiddleSolverEnabled = not RiddleSolverEnabled
+
+        if RiddleSolverEnabled then
+            CopierEnabled = false
+            CopierToggle.Text = "COPIER OFF"
+            CopierToggle.BackgroundColor3 = RED
+
+            RiddleActive = false
+            RiddleAnswers = {}
+            CurrentMessages = {}
+            WaitingForCode = false
+
+            RiddleToggle.Text = "RIDDLE ON"
+            RiddleToggle.BackgroundColor3 = GREEN
+            Status.Text = "Riddle Solver waiting for riddle..."
+            Status.TextColor3 = YELLOW
+        else
+            RiddleActive = false
+            RiddleAnswers = {}
+            RiddleToggle.Text = "RIDDLE SOLVER"
+            RiddleToggle.BackgroundColor3 = RED
+            Status.Text = "Riddle Solver OFF"
+            Status.TextColor3 = GRAY
+        end
+
+        SavePreferences()
     end)
 
     PrepareToggle.MouseButton1Click:Connect(function()
         PrepareEnabled = not PrepareEnabled
         PaintToggle(PrepareToggle, PrepareEnabled)
+        SavePreferences()
         CurrentMessages = {}; WaitingForCode = false
         if CopierEnabled then Status.Text = PrepareEnabled and "Waiting for code..." or "Ready to capture..."; Status.TextColor3 = GRAY end
     end)
@@ -526,20 +969,21 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         end
 
         PaintToggle(AfterSubmitToggle, AfterSubmitEnabled)
+        SavePreferences()
     end)
 
     -- Slider 1-5
     local SliderTitle = Instance.new("TextLabel", SettingsPanel)
-    SliderTitle.Size = UDim2.new(1,-28,0,24); SliderTitle.Position = UDim2.new(0,14,0,180); SliderTitle.BackgroundTransparency = 1
+    SliderTitle.Size = UDim2.new(1,-28,0,24); SliderTitle.Position = UDim2.new(0,14,0,306); SliderTitle.BackgroundTransparency = 1
     SliderTitle.Text = "Submit after messages"; SliderTitle.TextColor3 = WHITE; SliderTitle.TextSize = 13; SliderTitle.Font = Enum.Font.GothamBold; SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
 
     local Number = Instance.new("TextLabel", SettingsPanel)
-    Number.Size = UDim2.new(0,40,0,28); Number.Position = UDim2.new(1,-54,0,177); Number.BackgroundColor3 = BG3; Number.BorderSizePixel = 0
+    Number.Size = UDim2.new(0,40,0,28); Number.Position = UDim2.new(1,-54,0,303); Number.BackgroundColor3 = BG3; Number.BorderSizePixel = 0
     Number.Text = tostring(SubmitAfter); Number.TextColor3 = WHITE; Number.TextSize = 14; Number.Font = Enum.Font.GothamBold
     local nc = Instance.new("UICorner", Number); nc.CornerRadius = UDim.new(0,8)
 
     local Slider = Instance.new("Frame", SettingsPanel)
-    Slider.Size = UDim2.new(1,-36,0,8); Slider.Position = UDim2.new(0,18,0,224); Slider.BackgroundColor3 = BG3; Slider.BorderSizePixel = 0
+    Slider.Size = UDim2.new(1,-36,0,8); Slider.Position = UDim2.new(0,18,0,350); Slider.BackgroundColor3 = BG3; Slider.BorderSizePixel = 0
     local slc = Instance.new("UICorner", Slider); slc.CornerRadius = UDim.new(1,0)
     local Fill = Instance.new("Frame", Slider)
     Fill.Size = UDim2.new((SubmitAfter-1)/4,0,1,0); Fill.BackgroundColor3 = PURPLE; Fill.BorderSizePixel = 0
@@ -552,16 +996,16 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     for i=1,5 do
         local n = Instance.new("TextLabel", SettingsPanel)
-        n.Size = UDim2.new(0,24,0,20); n.AnchorPoint = Vector2.new(0.5,0); n.Position = UDim2.new((i-1)/4,0,0,236)
+        n.Size = UDim2.new(0,24,0,20); n.AnchorPoint = Vector2.new(0.5,0); n.Position = UDim2.new((i-1)/4,0,0,362)
         n.BackgroundTransparency = 1; n.Text = tostring(i); n.TextColor3 = GRAY; n.TextSize = 11; n.Font = Enum.Font.GothamMedium
     end
 
     -- Smart Redeemer sits directly below the Submit After slider.
-    SmartRedeemerToggle, SmartRedeemerLabel = MakeSwitch("Smart Redeemer", 265)
+    SmartRedeemerToggle, SmartRedeemerLabel = MakeSwitch("Smart Redeemer", 391)
 
     local SmartWIP = Instance.new("TextLabel", SettingsPanel)
     SmartWIP.Size = UDim2.new(0,44,0,18)
-    SmartWIP.Position = UDim2.new(0,101,0,272)
+    SmartWIP.Position = UDim2.new(0,101,0,398)
     SmartWIP.BackgroundTransparency = 1
     SmartWIP.Text = "W.I.P"
     SmartWIP.TextColor3 = YELLOW
@@ -595,6 +1039,8 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             Status.Text = PrepareEnabled and "Waiting for code..." or "Ready to capture..."
             Status.TextColor3 = GRAY
         end
+
+        SavePreferences()
     end)
 
     local dragging = false
@@ -604,6 +1050,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         SubmitAfter = value
         local snap = (value-1)/4
         Fill.Size = UDim2.new(snap,0,1,0); Knob.Position = UDim2.new(snap,0,0.5,0); Number.Text = tostring(value)
+        SavePreferences()
     end
     Slider.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragging=true; SetSlider(i.Position.X) end end)
     Knob.MouseButton1Down:Connect(function() dragging=true end)
@@ -612,7 +1059,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     -- Detection status
     local DetectStatus = Instance.new("TextLabel", SettingsPanel)
-    DetectStatus.Size = UDim2.new(1,-28,0,72); DetectStatus.Position = UDim2.new(0,14,0,310); DetectStatus.BackgroundColor3 = BG2; DetectStatus.BackgroundTransparency = 0.15; DetectStatus.BorderSizePixel = 0
+    DetectStatus.Size = UDim2.new(1,-28,0,72); DetectStatus.Position = UDim2.new(0,14,0,435); DetectStatus.BackgroundColor3 = BG2; DetectStatus.BackgroundTransparency = 0.15; DetectStatus.BorderSizePixel = 0
     DetectStatus.TextColor3 = YELLOW; DetectStatus.TextSize = 11; DetectStatus.Font = Enum.Font.Code; DetectStatus.TextXAlignment = Enum.TextXAlignment.Left; DetectStatus.TextYAlignment = Enum.TextYAlignment.Top; DetectStatus.TextWrapped = true; DetectStatus.ClipsDescendants = true
     local dc = Instance.new("UICorner", DetectStatus); dc.CornerRadius = UDim.new(0,9)
     local dp = Instance.new("UIPadding", DetectStatus); dp.PaddingLeft = UDim.new(0,8); dp.PaddingTop = UDim.new(0,7)
@@ -797,6 +1244,339 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         end
     end
 
+    local RiddleTriggerPhrases = {
+        "OKAY ITS A RIDDLE",
+        "OKAY IT'S A RIDDLE",
+        "OK ITS A RIDDLE",
+        "OK IT'S A RIDDLE",
+        "HERE IS A RIDDLE",
+        "HERE'S A RIDDLE",
+        "RIDDLE TIME",
+        "SOLVE THIS RIDDLE",
+        "ANSWER THIS RIDDLE",
+        "TIME FOR A RIDDLE",
+        "LETS DO A RIDDLE",
+        "LET'S DO A RIDDLE"
+    }
+
+    local function IsRiddleTrigger(t)
+        local clean = CleanText(t)
+        for _, phrase in ipairs(RiddleTriggerPhrases) do
+            if clean:find(phrase, 1, true) then
+                return true
+            end
+        end
+        return false
+    end
+
+    local function RememberRiddleFacts(raw)
+        local t = tostring(raw or "")
+        local upper = string.upper(t)
+
+        local name = t:match("[Mm][Yy]%s+[Nn][Aa][Mm][Ee]%s+[Ii][Ss]%s+([%w_%-]+)")
+        if name then RiddleFacts.name = name end
+
+        local weight = t:match("[Ii]%s+[Ww][Ee][Ii][Gg][Hh]%s*([%d%.]+)")
+            or t:match("[Mm][Yy]%s+[Ww][Ee][Ii][Gg][Hh][Tt]%s+[Ii][Ss]%s*([%d%.]+)")
+            or t:match("[Ww][Ee][Ii][Gg][Hh]%s*([%d%.]+)")
+        if weight then RiddleFacts.weight = weight end
+
+        local age = t:match("[Ii]%s+[Aa][Mm]%s+(%d+)%s+[Yy][Ee][Aa][Rr]")
+            or t:match("[Ii]'[Mm]%s+(%d+)%s+[Yy][Ee][Aa][Rr]")
+            or t:match("[Mm][Yy]%s+[Aa][Gg][Ee]%s+[Ii][Ss]%s+(%d+)")
+        if age then RiddleFacts.age = age end
+
+        local color = t:match("[Mm][Yy]%s+[Ff][Aa][Vv][Oo][Rr][Ii][Tt][Ee]%s+[Cc][Oo][Ll][Oo][Rr]%s+[Ii][Ss]%s+([%a]+)")
+            or t:match("[Ff][Aa][Vv][Oo][Rr][Ii][Tt][Ee]%s+[Cc][Oo][Ll][Oo][Rr]%s+[Ii][Ss]%s+([%a]+)")
+        if color then RiddleFacts.color = color end
+
+        local number = t:match("[Mm][Yy]%s+[Nn][Uu][Mm][Bb][Ee][Rr]%s+[Ii][Ss]%s+(%d+)")
+            or t:match("[Ff][Aa][Vv][Oo][Rr][Ii][Tt][Ee]%s+[Nn][Uu][Mm][Bb][Ee][Rr]%s+[Ii][Ss]%s+(%d+)")
+        if number then RiddleFacts.number = number end
+
+        local birthday = t:match("[Mm][Yy]%s+[Bb][Ii][Rr][Tt][Hh][Dd][Aa][Yy]%s+[Ii][Ss]%s+(.+)")
+        if birthday and #birthday <= 30 then
+            RiddleFacts.birthday = birthday:gsub("[%p]+$","")
+        end
+    end
+
+    local function SolveSimpleMath(question)
+        local q = question:gsub(",", "")
+        local a, op, b = q:match("(-?%d+%.?%d*)%s*([%+%-%*/xX])%s*(-?%d+%.?%d*)")
+        if not a then
+            return nil
+        end
+
+        a, b = tonumber(a), tonumber(b)
+        if not a or not b then return nil end
+
+        local result
+        if op == "+" then result = a + b
+        elseif op == "-" then result = a - b
+        elseif op == "*" or op == "x" or op == "X" then result = a * b
+        elseif op == "/" and b ~= 0 then result = a / b
+        end
+
+        if result == nil then return nil end
+        if math.floor(result) == result then
+            return tostring(math.floor(result))
+        end
+        return tostring(result)
+    end
+
+    local function AskAI(question)
+        if AIKey == "" or AIEndpoint == "" or AIModel == "" then
+            return nil
+        end
+
+        local requester = (syn and syn.request) or http_request or request
+        if not requester then
+            return nil
+        end
+
+        local memoryParts = {}
+        for k, v in pairs(RiddleFacts) do
+            if v ~= nil then
+                table.insert(memoryParts, tostring(k) .. "=" .. tostring(v))
+            end
+        end
+
+        local prompt = "Answer this riddle or memory question. Return ONLY the exact short answer, no explanation. "
+            .. "Remembered facts: " .. (#memoryParts > 0 and table.concat(memoryParts, ", ") or "none")
+            .. "\\nQuestion: " .. tostring(question)
+
+        local payload = {
+            model = AIModel,
+            messages = {
+                {
+                    role = "system",
+                    content = "You are a fast riddle solver. Return only the final short answer."
+                },
+                {
+                    role = "user",
+                    content = prompt
+                }
+            },
+            temperature = 0
+        }
+
+        local ok, response = pcall(function()
+            return requester({
+                Url = AIEndpoint,
+                Method = "POST",
+                Headers = {
+                    ["Authorization"] = "Bearer " .. AIKey,
+                    ["Content-Type"] = "application/json"
+                },
+                Body = HttpService:JSONEncode(payload)
+            })
+        end)
+
+        if not ok or not response then
+            return nil
+        end
+
+        local status = tonumber(response.StatusCode or response.Status or 0)
+        if status ~= 0 and (status < 200 or status >= 300) then
+            return nil
+        end
+
+        local raw = response.Body or response.body
+        if type(raw) ~= "string" or raw == "" then
+            return nil
+        end
+
+        local ok2, data = pcall(function()
+            return HttpService:JSONDecode(raw)
+        end)
+        if not ok2 or type(data) ~= "table" then
+            return nil
+        end
+
+        local answer = nil
+        if data.choices and data.choices[1]
+        and data.choices[1].message
+        and type(data.choices[1].message.content) == "string" then
+            answer = data.choices[1].message.content
+        elseif type(data.output_text) == "string" then
+            answer = data.output_text
+        end
+
+        if not answer then
+            return nil
+        end
+
+        answer = tostring(answer)
+        answer = answer:gsub("^%s+",""):gsub("%s+$","")
+        answer = answer:gsub("[\\r\\n].*$","")
+        answer = answer:gsub("^['\\"]",""):gsub("['\\"]$","")
+
+        return answer ~= "" and answer or nil
+    end
+
+    local function SolveRiddleQuestion(question)
+        local q = CleanText(question)
+
+        -- Memory questions.
+        if q:find("WHAT",1,true) and q:find("NAME",1,true) and RiddleFacts.name then
+            return tostring(RiddleFacts.name)
+        end
+
+        if (q:find("WEIGH",1,true) or q:find("WEIGHT",1,true)) and RiddleFacts.weight then
+            return tostring(RiddleFacts.weight)
+        end
+
+        if q:find("HOW OLD",1,true) and RiddleFacts.age then
+            return tostring(RiddleFacts.age)
+        end
+
+        if q:find("AGE",1,true) and RiddleFacts.age then
+            return tostring(RiddleFacts.age)
+        end
+
+        if q:find("COLOR",1,true) and RiddleFacts.color then
+            return tostring(RiddleFacts.color)
+        end
+
+        if q:find("NUMBER",1,true) and RiddleFacts.number then
+            return tostring(RiddleFacts.number)
+        end
+
+        if q:find("BIRTHDAY",1,true) and RiddleFacts.birthday then
+            return tostring(RiddleFacts.birthday)
+        end
+
+        -- Common small riddles.
+        local common = {
+            ["WHAT HAS KEYS BUT CANT OPEN LOCKS"] = "PIANO",
+            ["WHAT HAS KEYS BUT CAN'T OPEN LOCKS"] = "PIANO",
+            ["WHAT HAS HANDS BUT CANT CLAP"] = "CLOCK",
+            ["WHAT HAS HANDS BUT CAN'T CLAP"] = "CLOCK",
+            ["WHAT GETS WET WHILE DRYING"] = "TOWEL",
+            ["WHAT HAS A FACE AND TWO HANDS BUT NO ARMS OR LEGS"] = "CLOCK",
+            ["WHAT HAS ONE EYE BUT CANNOT SEE"] = "NEEDLE",
+            ["WHAT HAS ONE EYE BUT CANT SEE"] = "NEEDLE",
+            ["WHAT HAS A NECK BUT NO HEAD"] = "BOTTLE",
+            ["WHAT HAS MANY TEETH BUT CANNOT BITE"] = "COMB",
+            ["WHAT HAS MANY TEETH BUT CANT BITE"] = "COMB",
+            ["WHAT GOES UP BUT NEVER COMES DOWN"] = "AGE"
+        }
+
+        for key, answer in pairs(common) do
+            if q:find(key,1,true) then
+                return answer
+            end
+        end
+
+        local mathAnswer = SolveSimpleMath(question)
+        if mathAnswer then
+            return mathAnswer
+        end
+
+        -- Local fallback guess: use the most recent remembered fact that
+        -- semantically resembles the question, otherwise no answer.
+        if q:find("WHO",1,true) and RiddleFacts.name then
+            return tostring(RiddleFacts.name)
+        end
+
+        return nil
+    end
+
+    local function RedeemRiddleAnswers()
+        local count = #RiddleAnswers
+        if count < 2 or count > 5 then return end
+
+        CurrentMessages = {}
+        for _, answer in ipairs(RiddleAnswers) do
+            table.insert(CurrentMessages, CleanText(answer))
+        end
+
+        local finalText = table.concat(CurrentMessages, "")
+        local box = FindCodeBox()
+
+        if not box then
+            Status.Text = "Riddle solved, but redeem box not found"
+            Status.TextColor3 = RED
+            return
+        end
+
+        pcall(function()
+            box:CaptureFocus()
+            box.Text = finalText
+            box.CursorPosition = #finalText + 1
+            box.SelectionStart = -1
+        end)
+        pcall(function() box.Text = finalText end)
+
+        ClickSubmit()
+
+        if count == 5 then
+            RiddleAnswers = {}
+            CurrentMessages = {}
+            RiddleActive = false
+            WaitingForCode = false
+            pcall(function() box.Text = "" end)
+            Status.Text = "Riddle data reset - waiting for next riddle..."
+            Status.TextColor3 = GRAY
+        else
+            Status.Text = "Riddle redeemed " .. count .. "/5 - waiting for next question..."
+            Status.TextColor3 = YELLOW
+        end
+    end
+
+    local function HandleRiddleText(obj)
+        if not RiddleSolverEnabled or Submitting or not IsTopArea(obj) then
+            return false
+        end
+
+        local raw = tostring(obj.Text or "")
+        local clean = CleanText(raw)
+        if clean == "" then return false end
+
+        if RiddleLastText[obj] == clean then
+            return true
+        end
+        RiddleLastText[obj] = clean
+
+        -- Always learn factual statements visible at the top.
+        RememberRiddleFacts(raw)
+
+        if not RiddleActive then
+            if IsRiddleTrigger(clean) then
+                RiddleActive = true
+                RiddleAnswers = {}
+                CurrentMessages = {}
+                Status.Text = "Riddle detected - waiting for question..."
+                Status.TextColor3 = GREEN
+            end
+            return true
+        end
+
+        if IsRiddleTrigger(clean) then
+            return true
+        end
+
+        local answer = AskAI(raw)
+        if not answer then
+            answer = SolveRiddleQuestion(raw)
+        end
+        if answer and answer ~= "" then
+            table.insert(RiddleAnswers, answer)
+            AddCapture("Q: " .. clean .. " -> " .. CleanText(answer))
+            Status.Text = "Solved: " .. CleanText(answer) .. " (" .. #RiddleAnswers .. "/5)"
+            Status.TextColor3 = GREEN
+
+            if #RiddleAnswers >= 2 then
+                RedeemRiddleAnswers()
+            end
+        else
+            Status.Text = "Riddle Solver couldn't solve that locally"
+            Status.TextColor3 = RED
+        end
+
+        return true
+    end
+
     local function AddCode(text)
     if not CopierEnabled or Submitting then return end
     text = CleanText(text)
@@ -910,7 +1690,14 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 end
 
 local function HandlePopup(obj)
-        if not CopierEnabled or Submitting or not IsTopArea(obj) then return end
+        if Submitting or not IsTopArea(obj) then return end
+
+        if RiddleSolverEnabled then
+            HandleRiddleText(obj)
+            return
+        end
+
+        if not CopierEnabled then return end
         local text = CleanText(obj.Text)
         if IsBadText(text) or LastText[obj] == text then return end
         LastText[obj] = text
@@ -979,19 +1766,38 @@ local function HandlePopup(obj)
         end
     end)
 
-    -- Force clean, working startup defaults every execution
-    SubmitAfter = 3
-    AfterSubmitEnabled = true
+    -- Preserve saved settings while clearing only runtime capture state.
     CurrentMessages = {}
     WaitingForCode = false
     Submitting = false
 
-    Number.Text = "3"
-    Fill.Size = UDim2.new(0.5,0,1,0)
-    Knob.Position = UDim2.new(0.5,0,0.5,0)
-    PaintToggle(AfterSubmitToggle, true)
+    Number.Text = tostring(SubmitAfter)
+    local startupSnap = (SubmitAfter - 1) / 4
+    Fill.Size = UDim2.new(startupSnap,0,1,0)
+    Knob.Position = UDim2.new(startupSnap,0,0.5,0)
+    PaintToggle(CopierToggle, CopierEnabled)
+    if AIKey == "" then
+        RiddleSolverEnabled = false
+    end
+
+    if RiddleSolverEnabled then
+        CopierEnabled = false
+        CopierToggle.Text = "COPIER OFF"
+        CopierToggle.BackgroundColor3 = RED
+        RiddleToggle.Text = "RIDDLE ON"
+        RiddleToggle.BackgroundColor3 = GREEN
+    else
+        CopierToggle.Text = CopierEnabled and "COPIER ON" or "COPIER OFF"
+        CopierToggle.BackgroundColor3 = CopierEnabled and GREEN or RED
+        RiddleToggle.Text = "RIDDLE SOLVER"
+        RiddleToggle.BackgroundColor3 = RED
+    end
+    PaintToggle(PrepareToggle, PrepareEnabled)
+    PaintToggle(AfterSubmitToggle, AfterSubmitEnabled)
+    PaintToggle(SmartRedeemerToggle, SmartRedeemerEnabled)
 
     UpdateDetected()
+    SavePreferences()
 
     -- Fast loading animation, then reveal menu
     task.spawn(function()
