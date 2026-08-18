@@ -104,8 +104,6 @@ local function StartCodeSniper()
     local Players = game:GetService("Players")
     local UserInputService = game:GetService("UserInputService")
     local VirtualInputManager = game:GetService("VirtualInputManager")
-local TeleportService = game:GetService("TeleportService")
-
     local Player = Players.LocalPlayer
     local PlayerGui = Player:WaitForChild("PlayerGui")
 
@@ -127,9 +125,6 @@ local TeleportService = game:GetService("TeleportService")
 
     -- Persistent UI/settings preferences (executor file APIs when supported).
     local PREF_FILE = "codesniper_preferences.json"
-    local MenuVisible = true
-    local MenuXScale, MenuXOffset = 0.5, -235
-    local MenuYScale, MenuYOffset = 0.5, -222
 
     local function LoadPreferences()
         if not isfile or not readfile or not isfile(PREF_FILE) then
@@ -155,25 +150,11 @@ local TeleportService = game:GetService("TeleportService")
         if type(data.SubmitAfter) == "number" then
             SubmitAfter = math.clamp(math.floor(data.SubmitAfter), 1, 5)
         end
-        if type(data.MenuVisible) == "boolean" then MenuVisible = data.MenuVisible end
-        if type(data.MenuXScale) == "number" then MenuXScale = data.MenuXScale end
-        if type(data.MenuXOffset) == "number" then MenuXOffset = data.MenuXOffset end
-        if type(data.MenuYScale) == "number" then MenuYScale = data.MenuYScale end
-        if type(data.MenuYOffset) == "number" then MenuYOffset = data.MenuYOffset end
     end
-
-    local MenuRoot
 
     local function SavePreferences()
         if not writefile then
             return
-        end
-
-        if MenuRoot then
-            MenuXScale = MenuRoot.Position.X.Scale
-            MenuXOffset = MenuRoot.Position.X.Offset
-            MenuYScale = MenuRoot.Position.Y.Scale
-            MenuYOffset = MenuRoot.Position.Y.Offset
         end
 
         local data = {
@@ -185,12 +166,7 @@ local TeleportService = game:GetService("TeleportService")
             PrepareEnabled = PrepareEnabled,
             AfterSubmitEnabled = AfterSubmitEnabled,
             SmartRedeemerEnabled = SmartRedeemerEnabled,
-            SubmitAfter = SubmitAfter,
-            MenuVisible = MenuVisible,
-            MenuXScale = MenuXScale,
-            MenuXOffset = MenuXOffset,
-            MenuYScale = MenuYScale,
-            MenuYOffset = MenuYOffset
+            SubmitAfter = SubmitAfter
         }
 
         pcall(function()
@@ -437,175 +413,6 @@ local SmartAttemptId = 0
         return nil
     end
 
-    -- Main movable menu container
-    MenuRoot = Instance.new("Frame")
-    MenuRoot.Name = "MenuRoot"
-    MenuRoot.Size = UDim2.new(0,470,0,445)
-    MenuRoot.Position = UDim2.new(MenuXScale, MenuXOffset, MenuYScale, MenuYOffset)
-    MenuRoot.BackgroundTransparency = 1
-    MenuRoot.Visible = MenuVisible
-    MenuRoot.Active = true
-    MenuRoot.Parent = Gui
-
-    local MenuToggle = Instance.new("TextButton")
-    MenuToggle.Name = "MenuToggle"
-    MenuToggle.Size = UDim2.new(0,122,0,34)
-    MenuToggle.Position = UDim2.new(0,14,0,14)
-    MenuToggle.BackgroundColor3 = BG
-    MenuToggle.BorderSizePixel = 0
-    MenuToggle.Text = MenuVisible and "CLOSE MENU" or "OPEN MENU"
-    MenuToggle.TextColor3 = WHITE
-    MenuToggle.TextSize = 12
-    MenuToggle.Font = Enum.Font.GothamBold
-    MenuToggle.Parent = Gui
-    local menuToggleCorner = Instance.new("UICorner", MenuToggle)
-    menuToggleCorner.CornerRadius = UDim.new(0,10)
-    local menuToggleStroke = Instance.new("UIStroke", MenuToggle)
-    menuToggleStroke.Color = ORANGE
-    menuToggleStroke.Transparency = 0.25
-    AddAnimatedGradient(MenuToggle, 0.01)
-
-    MenuToggle.MouseButton1Click:Connect(function()
-        MenuVisible = not MenuVisible
-        MenuRoot.Visible = MenuVisible
-        MenuToggle.Text = MenuVisible and "CLOSE MENU" or "OPEN MENU"
-        SavePreferences()
-    end)
-
-    -- Always-visible mobile-friendly Server Hop button.
-    local ServerHopButton = Instance.new("TextButton")
-    ServerHopButton.Name = "ServerHop"
-    ServerHopButton.Size = UDim2.new(0,96,0,30)
-    ServerHopButton.Position = UDim2.new(0.5,-48,0,12)
-    ServerHopButton.BackgroundColor3 = BG
-    ServerHopButton.BorderSizePixel = 0
-    ServerHopButton.Text = "SERVER HOP"
-    ServerHopButton.TextColor3 = WHITE
-    ServerHopButton.TextSize = 10
-    ServerHopButton.Font = Enum.Font.GothamBold
-    ServerHopButton.ZIndex = 200
-    ServerHopButton.Parent = Gui
-
-    local serverHopCorner = Instance.new("UICorner", ServerHopButton)
-    serverHopCorner.CornerRadius = UDim.new(0,9)
-
-    local serverHopStroke = Instance.new("UIStroke", ServerHopButton)
-    serverHopStroke.Color = ORANGE
-    serverHopStroke.Transparency = 0.2
-    serverHopStroke.Thickness = 1.2
-
-    AddAnimatedGradient(ServerHopButton, 0.01)
-
-    local hopping = false
-
-    local function TryServerHop()
-        if hopping then return end
-        hopping = true
-        ServerHopButton.Text = "HOPPING..."
-
-        local placeId = game.PlaceId
-        local currentJobId = game.JobId
-
-        local ok, err = pcall(function()
-            local HttpService = game:GetService("HttpService")
-            local cursor = ""
-
-            for _ = 1, 6 do
-                local url = "https://games.roblox.com/v1/games/" .. tostring(placeId)
-                    .. "/servers/Public?sortOrder=Asc&limit=100"
-
-                if cursor ~= "" then
-                    url = url .. "&cursor=" .. HttpService:UrlEncode(cursor)
-                end
-
-                local body = game:HttpGet(url)
-                local data = HttpService:JSONDecode(body)
-
-                if data and type(data.data) == "table" then
-                    for _, server in ipairs(data.data) do
-                        if server.id ~= currentJobId
-                        and tonumber(server.playing or 0) < tonumber(server.maxPlayers or 0) then
-                            TeleportService:TeleportToPlaceInstance(placeId, server.id, Player)
-                            return
-                        end
-                    end
-                end
-
-                cursor = data and data.nextPageCursor or ""
-                if not cursor or cursor == "" then
-                    break
-                end
-            end
-
-            -- Fallback if no different public instance is found.
-            TeleportService:Teleport(placeId, Player)
-        end)
-
-        if not ok then
-            warn("Server Hop failed:", err)
-            ServerHopButton.Text = "SERVER HOP"
-            hopping = false
-        else
-            task.delay(3, function()
-                if ServerHopButton and ServerHopButton.Parent then
-                    ServerHopButton.Text = "SERVER HOP"
-                    hopping = false
-                end
-            end)
-        end
-    end
-
-    ServerHopButton.MouseButton1Click:Connect(TryServerHop)
-
-    -- Invisible drag zone across the top of the entire menu.
-    local MenuDragZone = Instance.new("Frame")
-    MenuDragZone.Name = "MenuDragZone"
-    MenuDragZone.Size = UDim2.new(1,0,0,46)
-    MenuDragZone.BackgroundTransparency = 1
-    MenuDragZone.Active = true
-    MenuDragZone.ZIndex = 50
-    MenuDragZone.Parent = MenuRoot
-
-    do
-        local draggingMenu = false
-        local dragStart
-        local startPos
-        local dragInput
-
-        MenuDragZone.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch then
-                draggingMenu = true
-                dragStart = input.Position
-                startPos = MenuRoot.Position
-
-                input.Changed:Connect(function()
-                    if input.UserInputState == Enum.UserInputState.End then
-                        draggingMenu = false
-                        SavePreferences()
-                    end
-                end)
-            end
-        end)
-
-        MenuDragZone.InputChanged:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement
-            or input.UserInputType == Enum.UserInputType.Touch then
-                dragInput = input
-            end
-        end)
-
-        UserInputService.InputChanged:Connect(function(input)
-            if draggingMenu and input == dragInput then
-                local delta = input.Position - dragStart
-                MenuRoot.Position = UDim2.new(
-                    startPos.X.Scale, startPos.X.Offset + delta.X,
-                    startPos.Y.Scale, startPos.Y.Offset + delta.Y
-                )
-            end
-        end)
-    end
-
     -- UI helpers
     local function MakePanel(title, pos)
         local f = Instance.new("Frame")
@@ -615,7 +422,7 @@ local SmartAttemptId = 0
         f.BackgroundTransparency = 0.03
         f.BorderSizePixel = 0
         f.Active = true
-        f.Parent = MenuRoot
+        f.Parent = Gui
 
         local c = Instance.new("UICorner", f); c.CornerRadius = UDim.new(0,14)
         local st = Instance.new("UIStroke", f); st.Color = ORANGE; st.Transparency = 0.15; st.Thickness = 1.5
@@ -667,8 +474,8 @@ local SmartAttemptId = 0
         local dragInput
 
         top.InputBegan:Connect(function(input)
-            if false and (input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch) then
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
                 draggingPanel = true
                 dragStart = input.Position
                 startPos = f.Position
@@ -701,8 +508,8 @@ local SmartAttemptId = 0
         return f
     end
 
-    local CapturedPanel = MakePanel("Captured", UDim2.new(0,0,0,0))
-    local SettingsPanel = MakePanel("Settings", UDim2.new(0,235,0,0))
+    local CapturedPanel = MakePanel("Captured", UDim2.new(1,-470,0.5,-175))
+    local SettingsPanel = MakePanel("Settings", UDim2.new(1,-235,0.5,-292))
 SettingsPanel.Size = UDim2.new(0,225,0,585)
 
     local Status = Instance.new("TextLabel", CapturedPanel)
