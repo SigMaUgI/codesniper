@@ -757,22 +757,6 @@ SettingsPanel.Size = UDim2.new(0,225,0,585)
     RiddleToggle.Font = Enum.Font.GothamBold
     local riddleCorner = Instance.new("UICorner", RiddleToggle)
     riddleCorner.CornerRadius = UDim.new(1,0)
-    local PrepareToggle = MakeSwitch("Prepare", 220)
-    local AfterSubmitToggle, AfterSubmitLabel = MakeSwitch("After Submit", 261)
-local SmartRedeemerToggle, SmartRedeemerLabel
-
-    local WIP = Instance.new("TextLabel", SettingsPanel)
-    WIP.Size = UDim2.new(0,44,0,18); WIP.Position = UDim2.new(0,101,0,268); WIP.BackgroundTransparency = 1
-    WIP.Text = "W.I.P"; WIP.TextColor3 = YELLOW; WIP.TextSize = 10; WIP.Font = Enum.Font.GothamBold
-
-    local function PaintToggle(button, enabled)
-        button.Text = enabled and "ON" or "OFF"
-        button.BackgroundColor3 = enabled and GREEN or RED
-    end
-
-    PaintToggle(CopierToggle, CopierEnabled)
-    RiddleToggle.Text = RiddleSolverEnabled and "RIDDLE ON" or "RIDDLE SOLVER"
-    RiddleToggle.BackgroundColor3 = RiddleSolverEnabled and GREEN or RED
 
     local APIKeyLabel = Instance.new("TextLabel", SettingsPanel)
     APIKeyLabel.Size = UDim2.new(1,-28,0,18)
@@ -853,16 +837,37 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             AIEndpoint = "https://api.openai.com/v1/chat/completions"
             APIEndpointBox.Text = AIEndpoint
         end
+
         if AIModel == "" then
             AIModel = "gpt-4.1-mini"
             APIModelBox.Text = AIModel
         end
+
         SavePreferences()
     end
 
     APIKeyBox.FocusLost:Connect(RefreshAISettings)
     APIEndpointBox.FocusLost:Connect(RefreshAISettings)
     APIModelBox.FocusLost:Connect(RefreshAISettings)
+
+    local PrepareToggle = MakeSwitch("Prepare", 220)
+    local AfterSubmitToggle, AfterSubmitLabel = MakeSwitch("After Submit", 261)
+local SmartRedeemerToggle, SmartRedeemerLabel
+
+    local WIP = Instance.new("TextLabel", SettingsPanel)
+    WIP.Size = UDim2.new(0,44,0,18); WIP.Position = UDim2.new(0,101,0,268); WIP.BackgroundTransparency = 1
+    WIP.Text = "W.I.P"; WIP.TextColor3 = YELLOW; WIP.TextSize = 10; WIP.Font = Enum.Font.GothamBold
+
+    local function PaintToggle(button, enabled)
+        button.Text = enabled and "ON" or "OFF"
+        button.BackgroundColor3 = enabled and GREEN or RED
+    end
+
+    PaintToggle(CopierToggle, CopierEnabled)
+    RiddleToggle.Text = RiddleSolverEnabled and "RIDDLE ON" or "RIDDLE SOLVER"
+    RiddleToggle.BackgroundColor3 = RiddleSolverEnabled and GREEN or RED
+    PaintToggle(PrepareToggle, PrepareEnabled)
+    PaintToggle(AfterSubmitToggle, AfterSubmitEnabled)
 
     ClearAPIKeyButton.MouseButton1Click:Connect(function()
         AIKey = ""
@@ -876,8 +881,6 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         Status.Text = "API key cleared - Riddle Solver locked"
         Status.TextColor3 = RED
     end)
-    PaintToggle(PrepareToggle, PrepareEnabled)
-    PaintToggle(AfterSubmitToggle, AfterSubmitEnabled)
 
     CopierToggle.MouseButton1Click:Connect(function()
         CopierEnabled = not CopierEnabled
@@ -1341,20 +1344,18 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             end
         end
 
-        local prompt = "Answer this riddle or memory question. Return ONLY the exact short answer, no explanation. "
-            .. "Remembered facts: " .. (#memoryParts > 0 and table.concat(memoryParts, ", ") or "none")
-            .. "\\nQuestion: " .. tostring(question)
-
         local payload = {
             model = AIModel,
             messages = {
                 {
                     role = "system",
-                    content = "You are a fast riddle solver. Return only the final short answer."
+                    content = "You solve riddles and memory questions. Return only the exact short answer with no explanation."
                 },
                 {
                     role = "user",
-                    content = prompt
+                    content = "Remembered facts: "
+                        .. (#memoryParts > 0 and table.concat(memoryParts, ", ") or "none")
+                        .. "\\nQuestion: " .. tostring(question)
                 }
             },
             temperature = 0
@@ -1372,9 +1373,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             })
         end)
 
-        if not ok or not response then
-            return nil
-        end
+        if not ok or not response then return nil end
 
         local status = tonumber(response.StatusCode or response.Status or 0)
         if status ~= 0 and (status < 200 or status >= 300) then
@@ -1382,18 +1381,14 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         end
 
         local raw = response.Body or response.body
-        if type(raw) ~= "string" or raw == "" then
-            return nil
-        end
+        if type(raw) ~= "string" or raw == "" then return nil end
 
         local ok2, data = pcall(function()
             return HttpService:JSONDecode(raw)
         end)
-        if not ok2 or type(data) ~= "table" then
-            return nil
-        end
+        if not ok2 or type(data) ~= "table" then return nil end
 
-        local answer = nil
+        local answer
         if data.choices and data.choices[1]
         and data.choices[1].message
         and type(data.choices[1].message.content) == "string" then
@@ -1402,15 +1397,12 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             answer = data.output_text
         end
 
-        if not answer then
-            return nil
-        end
+        if not answer then return nil end
 
         answer = tostring(answer)
         answer = answer:gsub("^%s+",""):gsub("%s+$","")
         answer = answer:gsub("[\\r\\n].*$","")
         answer = answer:gsub("^['\\"]",""):gsub("['\\"]$","")
-
         return answer ~= "" and answer or nil
     end
 
