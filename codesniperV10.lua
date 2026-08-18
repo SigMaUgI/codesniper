@@ -1401,8 +1401,8 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
         answer = tostring(answer)
         answer = answer:gsub("^%s+",""):gsub("%s+$","")
-        answer = answer:gsub("[\\r\\n].*$","")
-        answer = answer:gsub("^['\\"]",""):gsub("['\\"]$","")
+        answer = answer:gsub("\\r.*$", ""):gsub("\\n.*$", "")
+        answer = answer:gsub('^["\']', ""):gsub('["\']$', "")
         return answer ~= "" and answer or nil
     end
 
