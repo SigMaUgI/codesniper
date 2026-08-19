@@ -109,7 +109,7 @@ local function StartCodeSniper()
 
     -- SETTINGS
     local CopierEnabled = true
-    local RiddleSolverEnabled = false
+    local RiddleSolverEnabled = false -- removed from UI
     local PrepareEnabled = true
     local AfterSubmitEnabled = true
     local SmartRedeemerEnabled = false
@@ -137,7 +137,6 @@ local function StartCodeSniper()
         end
 
         if type(data.CopierEnabled) == "boolean" then CopierEnabled = data.CopierEnabled end
-        if type(data.RiddleSolverEnabled) == "boolean" then RiddleSolverEnabled = data.RiddleSolverEnabled end
         if type(data.PrepareEnabled) == "boolean" then PrepareEnabled = data.PrepareEnabled end
         if type(data.AfterSubmitEnabled) == "boolean" then AfterSubmitEnabled = data.AfterSubmitEnabled end
         if type(data.SmartRedeemerEnabled) == "boolean" then SmartRedeemerEnabled = data.SmartRedeemerEnabled end
@@ -153,7 +152,6 @@ local function StartCodeSniper()
 
         local data = {
             CopierEnabled = CopierEnabled,
-            RiddleSolverEnabled = RiddleSolverEnabled,
             PrepareEnabled = PrepareEnabled,
             AfterSubmitEnabled = AfterSubmitEnabled,
             SmartRedeemerEnabled = SmartRedeemerEnabled,
@@ -406,6 +404,7 @@ local SmartAttemptId = 0
 
     -- UI helpers
     local TweenService = game:GetService("TweenService")
+    local RunService = game:GetService("RunService")
 
     local function Tween(obj, duration, props, style, direction)
         local info = TweenInfo.new(duration or 0.25, style or Enum.EasingStyle.Quint, direction or Enum.EasingDirection.Out)
@@ -413,6 +412,8 @@ local SmartAttemptId = 0
         tw:Play()
         return tw
     end
+
+    local ActiveDraggedPanel = nil
 
     local function MakePanel(title, pos, fullHeight)
         local f = Instance.new("Frame")
@@ -472,40 +473,75 @@ local SmartAttemptId = 0
         local collapse = Instance.new("TextButton", top)
         collapse.Size = UDim2.new(0,28,0,28)
         collapse.Position = UDim2.new(1,-34,0,10)
-        collapse.BackgroundColor3 = Color3.fromRGB(24,16,4)
-        collapse.BackgroundTransparency = 0.15
+        collapse.BackgroundColor3 = Color3.fromRGB(255,145,0)
+        collapse.BackgroundTransparency = 0
         collapse.BorderSizePixel = 0
         collapse.Text = "−"
-        collapse.TextColor3 = WHITE
+        collapse.TextColor3 = Color3.fromRGB(40,18,0)
         collapse.TextSize = 18
         collapse.Font = Enum.Font.GothamBold
         collapse.ZIndex = 7
         local cc = Instance.new("UICorner",collapse); cc.CornerRadius = UDim.new(1,0)
+        local collapseGrad = Instance.new("UIGradient", collapse)
+        collapseGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255,225,35)),
+            ColorSequenceKeypoint.new(0.55, Color3.fromRGB(255,145,0)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255,95,0))
+        })
 
         local collapsed = false
         collapse.MouseButton1Click:Connect(function()
             collapsed = not collapsed
             collapse.Text = collapsed and "+" or "−"
-            Tween(f,0.3,{Size = collapsed and UDim2.new(0,235,0,16) or UDim2.new(0,235,0,fullHeight)},collapsed and Enum.EasingStyle.Quint or Enum.EasingStyle.Back)
+
+            if collapsed then
+                fade.Visible = false
+                c.CornerRadius = UDim.new(0,16)
+                Tween(f,0.28,{Size = UDim2.new(0,235,0,48)},Enum.EasingStyle.Quint)
+            else
+                fade.Visible = true
+                Tween(f,0.34,{Size = UDim2.new(0,235,0,fullHeight)},Enum.EasingStyle.Back)
+            end
         end)
 
         local dragging=false
         local dragStart,startPos,dragInput
+
         top.InputBegan:Connect(function(input)
             if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
-                dragging=true; dragStart=input.Position; startPos=f.Position
+                if ActiveDraggedPanel and ActiveDraggedPanel ~= f then
+                    return
+                end
+
+                ActiveDraggedPanel = f
+                dragging = true
+                dragStart = input.Position
+                startPos = f.Position
+
                 input.Changed:Connect(function()
-                    if input.UserInputState==Enum.UserInputState.End then dragging=false end
+                    if input.UserInputState==Enum.UserInputState.End then
+                        dragging = false
+                        if ActiveDraggedPanel == f then
+                            ActiveDraggedPanel = nil
+                        end
+                    end
                 end)
             end
         end)
+
         top.InputChanged:Connect(function(input)
-            if input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch then dragInput=input end
+            if input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch then
+                dragInput=input
+            end
         end)
+
         UserInputService.InputChanged:Connect(function(input)
-            if dragging and input==dragInput then
+            if dragging and ActiveDraggedPanel == f and input==dragInput then
                 local d=input.Position-dragStart
-                f.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
+                f.Position=UDim2.new(
+                    startPos.X.Scale,startPos.X.Offset+d.X,
+                    startPos.Y.Scale,startPos.Y.Offset+d.Y
+                )
             end
         end)
 
@@ -519,12 +555,11 @@ local SmartAttemptId = 0
         local cam=workspace.CurrentCamera
         if not cam then return end
         local w=cam.ViewportSize.X
-        if w<600 then
-            GlobalScale.Scale=0.82
-        elseif w<800 then
-            GlobalScale.Scale=0.9
+
+        if w < 800 then
+            GlobalScale.Scale = 0.5
         else
-            GlobalScale.Scale=1
+            GlobalScale.Scale = 1
         end
     end
     UpdateDeviceScale()
@@ -533,7 +568,7 @@ local SmartAttemptId = 0
     end
 
     local CapturedPanel = MakePanel("Logs", UDim2.new(1,-486,0.5,-190), 380)
-    local SettingsPanel = MakePanel("Config", UDim2.new(1,-243,0.5,-245), 490)
+    local SettingsPanel = MakePanel("Config", UDim2.new(1,-243,0.5,-200), 400)
 
     local function AddAtmosphere(panel)
         local fx=Instance.new("Frame",panel)
@@ -588,13 +623,13 @@ local SmartAttemptId = 0
             seg.AnchorPoint=Vector2.new(0.5,0)
             seg.Position=UDim2.new(s[1],0,s[2],0)
             seg.Size=UDim2.new(0,s[3],0,s[4])
-            seg.BackgroundColor3=Color3.fromRGB(255,232,25)
+            seg.BackgroundColor3=Color3.fromRGB(255,235,0)
             seg.BorderSizePixel=0
             seg.Rotation=s[5]
             local sc=Instance.new("UICorner",seg); sc.CornerRadius=UDim.new(1,0)
             local glow=Instance.new("UIStroke",seg)
-            glow.Color=Color3.fromRGB(255,150,0)
-            glow.Thickness=2
+            glow.Color=Color3.fromRGB(255,185,0)
+            glow.Thickness=3
             glow.Transparency=0.15
         end
         return holder
@@ -621,10 +656,10 @@ local SmartAttemptId = 0
             end
         end
 
-        task.wait(0.06)
+        task.wait(0.08)
         lightning.Visible=false
-        Tween(flash,0.12,{BackgroundTransparency=1},Enum.EasingStyle.Quad)
-        task.wait(0.12)
+        Tween(flash,0.10,{BackgroundTransparency=1},Enum.EasingStyle.Quad)
+        task.wait(0.10)
 
         for _,item in ipairs(changed) do
             if item.obj and item.obj.Parent then item.obj.TextColor3=item.color end
@@ -634,7 +669,7 @@ local SmartAttemptId = 0
 
     task.spawn(function()
         while Gui.Parent do
-            task.wait(math.random(30,120))
+            task.wait(math.random(0,30))
             task.spawn(function() FlashPanel(CapturedPanel,LogLightning) end)
             task.spawn(function() FlashPanel(SettingsPanel,ConfigLightning) end)
         end
@@ -687,24 +722,9 @@ local SmartAttemptId = 0
     CopierToggle.Position = UDim2.new(0,14,0,53)
     CopierToggle.Text = CopierEnabled and "COPIER ON" or "COPIER OFF"
 
-    local RiddleToggle = Instance.new("TextButton", SettingsPanel)
-    RiddleToggle.Size = UDim2.new(0,103,0,32)
-    RiddleToggle.Position = UDim2.new(0,108,0,53)
-    RiddleToggle.BorderSizePixel = 0
-    RiddleToggle.AutoButtonColor = false
-    RiddleToggle.TextColor3 = WHITE
-    RiddleToggle.TextSize = 10
-    RiddleToggle.Font = Enum.Font.GothamBold
-    local riddleCorner = Instance.new("UICorner", RiddleToggle)
-    riddleCorner.CornerRadius = UDim.new(1,0)
-
-    local PrepareToggle = MakeSwitch("Prepare", 100)
-    local AfterSubmitToggle, AfterSubmitLabel = MakeSwitch("After Submit", 141)
+    local PrepareToggle = MakeSwitch("Prepare", 92)
+    local AfterSubmitToggle, AfterSubmitLabel = MakeSwitch("After Submit", 133)
 local SmartRedeemerToggle, SmartRedeemerLabel
-
-    local WIP = Instance.new("TextLabel", SettingsPanel)
-    WIP.Size = UDim2.new(0,44,0,18); WIP.Position = UDim2.new(0,101,0,148); WIP.BackgroundTransparency = 1
-    WIP.Text = "W.I.P"; WIP.TextColor3 = YELLOW; WIP.TextSize = 10; WIP.Font = Enum.Font.GothamBold
 
     local function PaintToggle(button, enabled)
         button.Text = enabled and "ON" or "OFF"
@@ -712,8 +732,6 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     end
 
     PaintToggle(CopierToggle, CopierEnabled)
-    RiddleToggle.Text = RiddleSolverEnabled and "RIDDLE ON" or "RIDDLE SOLVER"
-    RiddleToggle.BackgroundColor3 = RiddleSolverEnabled and GREEN or RED
     PaintToggle(PrepareToggle, PrepareEnabled)
     PaintToggle(AfterSubmitToggle, AfterSubmitEnabled)
 
@@ -721,18 +739,10 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     CopierToggle.MouseButton1Click:Connect(function()
         CopierEnabled = not CopierEnabled
-
-        if CopierEnabled and RiddleSolverEnabled then
-            RiddleSolverEnabled = false
-            RiddleActive = false
-            RiddleAnswers = {}
-            RiddleToggle.Text = "RIDDLE SOLVER"
-            RiddleToggle.BackgroundColor3 = RED
-        end
-
         CopierToggle.Text = CopierEnabled and "COPIER ON" or "COPIER OFF"
         CopierToggle.BackgroundColor3 = CopierEnabled and GREEN or RED
         SavePreferences()
+        LogState("Copier", CopierEnabled)
 
         if not CopierEnabled then
             CurrentMessages = {}
@@ -745,33 +755,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         end
     end)
 
-    RiddleToggle.MouseButton1Click:Connect(function()
-        RiddleSolverEnabled = not RiddleSolverEnabled
 
-        if RiddleSolverEnabled then
-            CopierEnabled = false
-            CopierToggle.Text = "COPIER OFF"
-            CopierToggle.BackgroundColor3 = RED
-            RiddleActive = false
-            RiddleAnswers = {}
-            CurrentMessages = {}
-            WaitingForCode = false
-            RiddleToggle.Text = "RIDDLE ON"
-            RiddleToggle.BackgroundColor3 = GREEN
-            Status.Text = "Riddle Solver waiting for riddle..."
-            Status.TextColor3 = YELLOW
-        else
-            RiddleActive = false
-            RiddleAnswers = {}
-            RiddleToggle.Text = "RIDDLE SOLVER"
-            RiddleToggle.BackgroundColor3 = RED
-            Status.Text = "Riddle Solver OFF"
-            Status.TextColor3 = GRAY
-        end
-
-        SavePreferences()
-        LogState("Riddle Solver", RiddleSolverEnabled)
-    end)
 
     PrepareToggle.MouseButton1Click:Connect(function()
         PrepareEnabled = not PrepareEnabled
@@ -805,16 +789,16 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     -- Slider 1-5
     local SliderTitle = Instance.new("TextLabel", SettingsPanel)
-    SliderTitle.Size = UDim2.new(1,-28,0,24); SliderTitle.Position = UDim2.new(0,14,0,187); SliderTitle.BackgroundTransparency = 1
+    SliderTitle.Size = UDim2.new(1,-28,0,24); SliderTitle.Position = UDim2.new(0,14,0,174); SliderTitle.BackgroundTransparency = 1
     SliderTitle.Text = "Submit after messages"; SliderTitle.TextColor3 = WHITE; SliderTitle.TextSize = 13; SliderTitle.Font = Enum.Font.GothamBold; SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
 
     local Number = Instance.new("TextLabel", SettingsPanel)
-    Number.Size = UDim2.new(0,40,0,28); Number.Position = UDim2.new(1,-54,0,184); Number.BackgroundColor3 = BG3; Number.BorderSizePixel = 0
+    Number.Size = UDim2.new(0,40,0,28); Number.Position = UDim2.new(1,-54,0,171); Number.BackgroundColor3 = BG3; Number.BorderSizePixel = 0
     Number.Text = tostring(SubmitAfter); Number.TextColor3 = WHITE; Number.TextSize = 14; Number.Font = Enum.Font.GothamBold
     local nc = Instance.new("UICorner", Number); nc.CornerRadius = UDim.new(0,8)
 
     local Slider = Instance.new("Frame", SettingsPanel)
-    Slider.Size = UDim2.new(1,-36,0,8); Slider.Position = UDim2.new(0,18,0,231); Slider.BackgroundColor3 = BG3; Slider.BorderSizePixel = 0
+    Slider.Size = UDim2.new(1,-36,0,8); Slider.Position = UDim2.new(0,18,0,216); Slider.BackgroundColor3 = BG3; Slider.BorderSizePixel = 0
     local slc = Instance.new("UICorner", Slider); slc.CornerRadius = UDim.new(1,0)
     local Fill = Instance.new("Frame", Slider)
     Fill.Size = UDim2.new((SubmitAfter-1)/4,0,1,0); Fill.BackgroundColor3 = PURPLE; Fill.BorderSizePixel = 0
@@ -827,21 +811,12 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     for i=1,5 do
         local n = Instance.new("TextLabel", SettingsPanel)
-        n.Size = UDim2.new(0,24,0,20); n.AnchorPoint = Vector2.new(0.5,0); n.Position = UDim2.new((i-1)/4,0,0,243)
+        n.Size = UDim2.new(0,24,0,20); n.AnchorPoint = Vector2.new(0.5,0); n.Position = UDim2.new((i-1)/4,0,0,228)
         n.BackgroundTransparency = 1; n.Text = tostring(i); n.TextColor3 = GRAY; n.TextSize = 11; n.Font = Enum.Font.GothamMedium
     end
 
     -- Smart Redeemer sits directly below the Submit After slider.
-    SmartRedeemerToggle, SmartRedeemerLabel = MakeSwitch("Smart Redeemer", 272)
-
-    local SmartWIP = Instance.new("TextLabel", SettingsPanel)
-    SmartWIP.Size = UDim2.new(0,44,0,18)
-    SmartWIP.Position = UDim2.new(0,101,0,279)
-    SmartWIP.BackgroundTransparency = 1
-    SmartWIP.Text = "W.I.P"
-    SmartWIP.TextColor3 = YELLOW
-    SmartWIP.TextSize = 10
-    SmartWIP.Font = Enum.Font.GothamBold
+    SmartRedeemerToggle, SmartRedeemerLabel = MakeSwitch("Smart Redeemer", 256)
 
     PaintToggle(SmartRedeemerToggle, SmartRedeemerEnabled)
 
@@ -891,7 +866,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     -- Detection status
     local DetectStatus = Instance.new("TextLabel", SettingsPanel)
-    DetectStatus.Size = UDim2.new(1,-28,0,56); DetectStatus.Position = UDim2.new(0,14,0,312); DetectStatus.BackgroundColor3 = BG2; DetectStatus.BackgroundTransparency = 0.15; DetectStatus.BorderSizePixel = 0
+    DetectStatus.Size = UDim2.new(1,-28,0,50); DetectStatus.Position = UDim2.new(0,14,0,318); DetectStatus.BackgroundColor3 = BG2; DetectStatus.BackgroundTransparency = 0.15; DetectStatus.BorderSizePixel = 0
     DetectStatus.TextColor3 = YELLOW; DetectStatus.TextSize = 11; DetectStatus.Font = Enum.Font.Code; DetectStatus.TextXAlignment = Enum.TextXAlignment.Left; DetectStatus.TextYAlignment = Enum.TextYAlignment.Top; DetectStatus.TextWrapped = true; DetectStatus.ClipsDescendants = true
     local dc = Instance.new("UICorner", DetectStatus); dc.CornerRadius = UDim.new(0,9)
     local dp = Instance.new("UIPadding", DetectStatus); dp.PaddingLeft = UDim.new(0,8); dp.PaddingTop = UDim.new(0,7)
@@ -900,10 +875,10 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     local ResetButton = Instance.new("TextButton", SettingsPanel)
     ResetButton.Name = "ResetData"
     ResetButton.Size = UDim2.new(1,-28,0,32)
-    ResetButton.Position = UDim2.new(0,14,0,374)
+    ResetButton.Position = UDim2.new(0,14,0,284)
     ResetButton.BackgroundColor3 = ORANGE
     ResetButton.BorderSizePixel = 0
-    ResetButton.Text = "RESET CODE DATA"
+    ResetButton.Text = "RESET LOGS"
     ResetButton.TextColor3 = Color3.fromRGB(20,12,0)
     ResetButton.TextSize = 12
     ResetButton.Font = Enum.Font.GothamBold
@@ -914,14 +889,14 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     ResetButton.MouseButton1Click:Connect(function()
         CurrentMessages = {}
-        AllCaptured = {}
         WaitingForCode = false
         Submitting = false
-    SmartAwaitingResult = false
-    SmartNeedsNextMessage = false
-    SmartRetrying = false
-    SmartAttemptId += 1
+        SmartAwaitingResult = false
+        SmartNeedsNextMessage = false
+        SmartRetrying = false
+        SmartAttemptId += 1
 
+        AllCaptured = {}
         for _, child in ipairs(Scroll:GetChildren()) do
             if child:IsA("TextLabel") then
                 child:Destroy()
@@ -935,49 +910,62 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             end)
         end
 
-        Status.Text = PrepareEnabled and "Waiting for code..." or "Ready to capture..."
+        Status.Text = "Logs reset"
         Status.TextColor3 = GRAY
-        print("CodeSniper data reset")
+        AddLog("Logs reset")
     end)
 
-    local BrainrotFooter = Instance.new("TextLabel", SettingsPanel)
-    BrainrotFooter.Size = UDim2.new(1,-28,0,54)
-    BrainrotFooter.Position = UDim2.new(0,14,1,-64)
-    BrainrotFooter.BackgroundTransparency = 1
-    BrainrotFooter.Text = "STEAL A BRAINROT"
-    BrainrotFooter.TextColor3 = Color3.fromRGB(255,205,20)
-    BrainrotFooter.TextSize = 18
-    BrainrotFooter.Font = Enum.Font.GothamBlack
-    BrainrotFooter.TextWrapped = true
-    BrainrotFooter.ZIndex = 5
-    local footerStroke = Instance.new("UIStroke",BrainrotFooter)
-    footerStroke.Color = Color3.fromRGB(255,100,0)
-    footerStroke.Thickness = 1.6
-    footerStroke.Transparency = 0.14
-    local footerGrad = Instance.new("UIGradient",BrainrotFooter)
-    footerGrad.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0,Color3.fromRGB(255,235,35)),
-        ColorSequenceKeypoint.new(0.35,Color3.fromRGB(255,145,10)),
-        ColorSequenceKeypoint.new(0.7,Color3.fromRGB(40,220,255)),
-        ColorSequenceKeypoint.new(1,Color3.fromRGB(0,105,255))
-    })
+    -- Brainrot logo: upload the transparent PNG to your GitHub repo as brainrot_logo.png.
+    -- The script downloads it locally when the executor supports custom assets.
+    local BRAINROT_IMAGE_URL = "https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/brainrot_logo.png"
+    local BRAINROT_IMAGE = ""
 
-    task.spawn(function()
-        while BrainrotFooter.Parent do
-            footerGrad.Rotation=(footerGrad.Rotation+3)%360
-            Tween(BrainrotFooter,0.6,{
-                Size=UDim2.new(1,-18,0,58),
-                Position=UDim2.new(0,9,1,-69),
-                TextSize=20
-            },Enum.EasingStyle.Sine,Enum.EasingDirection.InOut)
-            task.wait(0.62)
-            Tween(BrainrotFooter,0.6,{
-                Size=UDim2.new(1,-28,0,54),
-                Position=UDim2.new(0,14,1,-64),
-                TextSize=18
-            },Enum.EasingStyle.Sine,Enum.EasingDirection.InOut)
-            task.wait(0.62)
+    pcall(function()
+        if writefile and getcustomasset then
+            local raw = game:HttpGet(BRAINROT_IMAGE_URL)
+            if raw and #raw > 100 then
+                writefile("codesniper_brainrot_logo.png", raw)
+                BRAINROT_IMAGE = getcustomasset("codesniper_brainrot_logo.png")
+            end
         end
+    end)
+
+    local BrainrotLogo = Instance.new("ImageLabel", Gui)
+    BrainrotLogo.Name = "BrainrotLogo"
+    BrainrotLogo.Size = UDim2.new(0,190,0,82)
+    BrainrotLogo.AnchorPoint = Vector2.new(0.5,0.5)
+    BrainrotLogo.BackgroundTransparency = 1
+    BrainrotLogo.Image = BRAINROT_IMAGE
+    BrainrotLogo.ScaleType = Enum.ScaleType.Fit
+    BrainrotLogo.ZIndex = 40
+
+    local logoPulse = 0
+    RunService.RenderStepped:Connect(function(dt)
+        if not BrainrotLogo.Parent or not SettingsPanel.Parent then return end
+
+        local panelPos = SettingsPanel.Position
+        local panelSize = SettingsPanel.Size
+
+        -- Hide logo when Config is collapsed.
+        if panelSize.Y.Offset <= 60 then
+            BrainrotLogo.Visible = false
+            return
+        end
+
+        BrainrotLogo.Visible = true
+        logoPulse += dt * 2.4
+
+        local pulse = (math.sin(logoPulse) + 1) * 0.5
+        local grow = math.floor(pulse * 8)
+        local rise = math.floor(pulse * 5)
+
+        BrainrotLogo.Size = UDim2.new(0,190 + grow,0,82 + math.floor(grow * 0.45))
+        BrainrotLogo.Position = UDim2.new(
+            panelPos.X.Scale,
+            panelPos.X.Offset + 117,
+            panelPos.Y.Scale,
+            panelPos.Y.Offset + panelSize.Y.Offset - 2 - rise
+        )
     end)
 
     local function UpdateDetected()
@@ -1570,13 +1558,9 @@ local function HandlePopup(obj)
         CopierEnabled = false
         CopierToggle.Text = "COPIER OFF"
         CopierToggle.BackgroundColor3 = RED
-        RiddleToggle.Text = "RIDDLE ON"
-        RiddleToggle.BackgroundColor3 = GREEN
     else
         CopierToggle.Text = CopierEnabled and "COPIER ON" or "COPIER OFF"
         CopierToggle.BackgroundColor3 = CopierEnabled and GREEN or RED
-        RiddleToggle.Text = "RIDDLE SOLVER"
-        RiddleToggle.BackgroundColor3 = RED
     end
     PaintToggle(PrepareToggle, PrepareEnabled)
     PaintToggle(AfterSubmitToggle, AfterSubmitEnabled)
