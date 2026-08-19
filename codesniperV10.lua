@@ -110,9 +110,6 @@ local function StartCodeSniper()
     -- SETTINGS
     local CopierEnabled = true
     local RiddleSolverEnabled = false
-    local AIKey = ""
-    local AIEndpoint = "https://api.openai.com/v1/chat/completions"
-    local AIModel = "gpt-4.1-mini"
     local PrepareEnabled = true
     local AfterSubmitEnabled = true
     local SmartRedeemerEnabled = false
@@ -141,9 +138,6 @@ local function StartCodeSniper()
 
         if type(data.CopierEnabled) == "boolean" then CopierEnabled = data.CopierEnabled end
         if type(data.RiddleSolverEnabled) == "boolean" then RiddleSolverEnabled = data.RiddleSolverEnabled end
-        if type(data.AIKey) == "string" then AIKey = data.AIKey end
-        if type(data.AIEndpoint) == "string" and data.AIEndpoint ~= "" then AIEndpoint = data.AIEndpoint end
-        if type(data.AIModel) == "string" and data.AIModel ~= "" then AIModel = data.AIModel end
         if type(data.PrepareEnabled) == "boolean" then PrepareEnabled = data.PrepareEnabled end
         if type(data.AfterSubmitEnabled) == "boolean" then AfterSubmitEnabled = data.AfterSubmitEnabled end
         if type(data.SmartRedeemerEnabled) == "boolean" then SmartRedeemerEnabled = data.SmartRedeemerEnabled end
@@ -160,9 +154,6 @@ local function StartCodeSniper()
         local data = {
             CopierEnabled = CopierEnabled,
             RiddleSolverEnabled = RiddleSolverEnabled,
-            AIKey = AIKey,
-            AIEndpoint = AIEndpoint,
-            AIModel = AIModel,
             PrepareEnabled = PrepareEnabled,
             AfterSubmitEnabled = AfterSubmitEnabled,
             SmartRedeemerEnabled = SmartRedeemerEnabled,
@@ -414,127 +405,269 @@ local SmartAttemptId = 0
     end
 
     -- UI helpers
-    local function MakePanel(title, pos)
+    local TweenService = game:GetService("TweenService")
+
+    local function Tween(obj, duration, props, style, direction)
+        local info = TweenInfo.new(duration or 0.25, style or Enum.EasingStyle.Quint, direction or Enum.EasingDirection.Out)
+        local tw = TweenService:Create(obj, info, props)
+        tw:Play()
+        return tw
+    end
+
+    local function MakePanel(title, pos, fullHeight)
         local f = Instance.new("Frame")
-        f.Size = UDim2.new(0,225,0,350)
+        f.Name = title .. "Panel"
+        f.Size = UDim2.new(0,235,0,fullHeight)
         f.Position = pos
-        f.BackgroundColor3 = BG
-        f.BackgroundTransparency = 0.03
+        f.BackgroundColor3 = Color3.fromRGB(6,7,10)
+        f.BackgroundTransparency = 0.04
         f.BorderSizePixel = 0
         f.Active = true
+        f.ClipsDescendants = true
         f.Parent = Gui
 
-        local c = Instance.new("UICorner", f); c.CornerRadius = UDim.new(0,14)
-        local st = Instance.new("UIStroke", f); st.Color = ORANGE; st.Transparency = 0.15; st.Thickness = 1.5
+        local c = Instance.new("UICorner", f); c.CornerRadius = UDim.new(0,16)
+        local st = Instance.new("UIStroke", f); st.Color = ORANGE; st.Transparency = 0.28; st.Thickness = 1.4
 
         local top = Instance.new("Frame", f)
         top.Name = "DragBar"
-        top.Size = UDim2.new(1,0,0,46)
+        top.Size = UDim2.new(1,0,0,48)
         top.BackgroundColor3 = ORANGE
-        top.BackgroundTransparency = 0.05
         top.BorderSizePixel = 0
         top.Active = true
+        top.ZIndex = 5
+        local tc = Instance.new("UICorner", top); tc.CornerRadius = UDim.new(0,16)
+        AddAnimatedGradient(top,0.008)
 
-        local tc = Instance.new("UICorner", top); tc.CornerRadius = UDim.new(0,14)
-        local cover = Instance.new("Frame", top)
-        cover.Size = UDim2.new(1,0,0,14)
-        cover.Position = UDim2.new(0,0,1,-14)
-        cover.BackgroundColor3 = ORANGE
-        cover.BorderSizePixel = 0
-
-        AddAnimatedGradient(top, 0.012)
+        local fade = Instance.new("Frame", f)
+        fade.Size = UDim2.new(1,0,0,34)
+        fade.Position = UDim2.new(0,0,0,28)
+        fade.BackgroundColor3 = ORANGE
+        fade.BorderSizePixel = 0
+        fade.ZIndex = 4
+        local fg = Instance.new("UIGradient", fade)
+        fg.Rotation = 90
+        fg.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0,ORANGE),
+            ColorSequenceKeypoint.new(0.5,GOLD),
+            ColorSequenceKeypoint.new(1,Color3.fromRGB(6,7,10))
+        })
+        fg.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0,0.05),
+            NumberSequenceKeypoint.new(0.55,0.4),
+            NumberSequenceKeypoint.new(1,1)
+        })
 
         local l = Instance.new("TextLabel", top)
-        l.Size = UDim2.new(1,-24,1,0)
-        l.Position = UDim2.new(0,12,0,0)
+        l.Size = UDim2.new(1,-72,1,0)
+        l.Position = UDim2.new(0,14,0,0)
         l.BackgroundTransparency = 1
-        l.Text = title
-        l.TextColor3 = Color3.fromRGB(20,12,0)
-        l.TextSize = 18
-        l.Font = Enum.Font.GothamBold
+        l.Text = string.upper(title)
+        l.TextColor3 = Color3.fromRGB(28,14,0)
+        l.TextSize = 17
+        l.Font = Enum.Font.GothamBlack
         l.TextXAlignment = Enum.TextXAlignment.Left
-        l.TextTruncate = Enum.TextTruncate.AtEnd
+        l.ZIndex = 6
 
-        local by = Instance.new("TextLabel", top)
-        by.Size = UDim2.new(0,82,0,16)
-        by.AnchorPoint = Vector2.new(1,0.5)
-        by.Position = UDim2.new(1,-10,0.5,0)
-        by.BackgroundTransparency = 1
-        by.Text = "made by FTX"
-        by.TextColor3 = Color3.fromRGB(45,25,0)
-        by.TextSize = 9
-        by.Font = Enum.Font.GothamBold
-        by.TextXAlignment = Enum.TextXAlignment.Right
-        by.TextTruncate = Enum.TextTruncate.AtEnd
+        local collapse = Instance.new("TextButton", top)
+        collapse.Size = UDim2.new(0,28,0,28)
+        collapse.Position = UDim2.new(1,-34,0,10)
+        collapse.BackgroundColor3 = Color3.fromRGB(24,16,4)
+        collapse.BackgroundTransparency = 0.15
+        collapse.BorderSizePixel = 0
+        collapse.Text = "−"
+        collapse.TextColor3 = WHITE
+        collapse.TextSize = 18
+        collapse.Font = Enum.Font.GothamBold
+        collapse.ZIndex = 7
+        local cc = Instance.new("UICorner",collapse); cc.CornerRadius = UDim.new(1,0)
 
-        -- Dragging
-        local draggingPanel = false
-        local dragStart
-        local startPos
-        local dragInput
+        local collapsed = false
+        collapse.MouseButton1Click:Connect(function()
+            collapsed = not collapsed
+            collapse.Text = collapsed and "+" or "−"
+            Tween(f,0.3,{Size = collapsed and UDim2.new(0,235,0,16) or UDim2.new(0,235,0,fullHeight)},collapsed and Enum.EasingStyle.Quint or Enum.EasingStyle.Back)
+        end)
 
+        local dragging=false
+        local dragStart,startPos,dragInput
         top.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch then
-                draggingPanel = true
-                dragStart = input.Position
-                startPos = f.Position
-
+            if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
+                dragging=true; dragStart=input.Position; startPos=f.Position
                 input.Changed:Connect(function()
-                    if input.UserInputState == Enum.UserInputState.End then
-                        draggingPanel = false
-                    end
+                    if input.UserInputState==Enum.UserInputState.End then dragging=false end
                 end)
             end
         end)
-
         top.InputChanged:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement
-            or input.UserInputType == Enum.UserInputType.Touch then
-                dragInput = input
-            end
+            if input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch then dragInput=input end
         end)
-
         UserInputService.InputChanged:Connect(function(input)
-            if draggingPanel and input == dragInput then
-                local delta = input.Position - dragStart
-                f.Position = UDim2.new(
-                    startPos.X.Scale, startPos.X.Offset + delta.X,
-                    startPos.Y.Scale, startPos.Y.Offset + delta.Y
-                )
+            if dragging and input==dragInput then
+                local d=input.Position-dragStart
+                f.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
             end
         end)
 
         return f
     end
 
-    local CapturedPanel = MakePanel("Captured", UDim2.new(1,-470,0.5,-175))
-    local SettingsPanel = MakePanel("Settings", UDim2.new(1,-235,0.5,-292))
-SettingsPanel.Size = UDim2.new(0,225,0,585)
+    local GlobalScale=Instance.new("UIScale",Gui)
+    GlobalScale.Scale=1
+
+    local function UpdateDeviceScale()
+        local cam=workspace.CurrentCamera
+        if not cam then return end
+        local w=cam.ViewportSize.X
+        if w<600 then
+            GlobalScale.Scale=0.82
+        elseif w<800 then
+            GlobalScale.Scale=0.9
+        else
+            GlobalScale.Scale=1
+        end
+    end
+    UpdateDeviceScale()
+    if workspace.CurrentCamera then
+        workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(UpdateDeviceScale)
+    end
+
+    local CapturedPanel = MakePanel("Logs", UDim2.new(1,-486,0.5,-190), 380)
+    local SettingsPanel = MakePanel("Config", UDim2.new(1,-243,0.5,-245), 490)
+
+    local function AddAtmosphere(panel)
+        local fx=Instance.new("Frame",panel)
+        fx.Size=UDim2.fromScale(1,1)
+        fx.BackgroundTransparency=1
+        fx.ClipsDescendants=true
+        fx.ZIndex=1
+
+        for i=1,9 do
+            local streak=Instance.new("Frame",fx)
+            streak.Size=UDim2.new(0,math.random(35,85),0,math.random(1,3))
+            streak.Position=UDim2.new(0,math.random(-100,200),0,math.random(58,340))
+            streak.BackgroundColor3=(i%2==0) and Color3.fromRGB(255,160,20) or Color3.fromRGB(255,225,75)
+            streak.BackgroundTransparency=math.random(76,91)/100
+            streak.BorderSizePixel=0
+            streak.Rotation=math.random(-7,7)
+            local sc=Instance.new("UICorner",streak); sc.CornerRadius=UDim.new(1,0)
+
+            task.spawn(function()
+                while streak.Parent do
+                    streak.Position=UDim2.new(0,-100,0,math.random(58,math.max(70,panel.AbsoluteSize.Y-24)))
+                    streak.BackgroundTransparency=math.random(76,92)/100
+                    local yy=streak.Position.Y.Offset+math.random(-10,10)
+                    local tw=Tween(streak,math.random(22,42)/10,{
+                        Position=UDim2.new(1,85,0,yy),
+                        BackgroundTransparency=0.98
+                    },Enum.EasingStyle.Linear)
+                    tw.Completed:Wait()
+                    task.wait(math.random(2,8)/10)
+                end
+            end)
+        end
+        return fx
+    end
+
+    local LogsFX=AddAtmosphere(CapturedPanel)
+    local ConfigFX=AddAtmosphere(SettingsPanel)
+
+    local function MakeLightning(parent)
+        local holder=Instance.new("Frame",parent)
+        holder.Size=UDim2.fromScale(1,1)
+        holder.BackgroundTransparency=1
+        holder.Visible=false
+        holder.ZIndex=30
+
+        local pieces={
+            {0.53,0.03,4,65,-13},{0.50,0.17,5,66,11},{0.57,0.31,5,70,-12},
+            {0.52,0.46,5,66,10},{0.58,0.61,4,66,-10},{0.53,0.76,4,60,9}
+        }
+        for _,s in ipairs(pieces) do
+            local seg=Instance.new("Frame",holder)
+            seg.AnchorPoint=Vector2.new(0.5,0)
+            seg.Position=UDim2.new(s[1],0,s[2],0)
+            seg.Size=UDim2.new(0,s[3],0,s[4])
+            seg.BackgroundColor3=Color3.fromRGB(255,232,25)
+            seg.BorderSizePixel=0
+            seg.Rotation=s[5]
+            local sc=Instance.new("UICorner",seg); sc.CornerRadius=UDim.new(1,0)
+            local glow=Instance.new("UIStroke",seg)
+            glow.Color=Color3.fromRGB(255,150,0)
+            glow.Thickness=2
+            glow.Transparency=0.15
+        end
+        return holder
+    end
+
+    local LogLightning=MakeLightning(CapturedPanel)
+    local ConfigLightning=MakeLightning(SettingsPanel)
+
+    local function FlashPanel(panel,lightning)
+        lightning.Visible=true
+        local flash=Instance.new("Frame",panel)
+        flash.Size=UDim2.fromScale(1,1)
+        flash.BackgroundColor3=Color3.fromRGB(255,238,140)
+        flash.BackgroundTransparency=0.86
+        flash.BorderSizePixel=0
+        flash.ZIndex=25
+        local fc=Instance.new("UICorner",flash); fc.CornerRadius=UDim.new(0,16)
+
+        local changed={}
+        for _,obj in ipairs(panel:GetDescendants()) do
+            if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+                table.insert(changed,{obj=obj,color=obj.TextColor3})
+                obj.TextColor3=Color3.fromRGB(255,250,218)
+            end
+        end
+
+        task.wait(0.06)
+        lightning.Visible=false
+        Tween(flash,0.12,{BackgroundTransparency=1},Enum.EasingStyle.Quad)
+        task.wait(0.12)
+
+        for _,item in ipairs(changed) do
+            if item.obj and item.obj.Parent then item.obj.TextColor3=item.color end
+        end
+        flash:Destroy()
+    end
+
+    task.spawn(function()
+        while Gui.Parent do
+            task.wait(math.random(30,120))
+            task.spawn(function() FlashPanel(CapturedPanel,LogLightning) end)
+            task.spawn(function() FlashPanel(SettingsPanel,ConfigLightning) end)
+        end
+    end)
+
 
     local Status = Instance.new("TextLabel", CapturedPanel)
     Status.Size = UDim2.new(1,-24,0,22); Status.Position = UDim2.new(0,12,0,51); Status.BackgroundTransparency = 1
-    Status.Text = "Waiting for code..."; Status.TextColor3 = GRAY; Status.TextSize = 12; Status.Font = Enum.Font.Gotham; Status.TextXAlignment = Enum.TextXAlignment.Left
+    Status.Text = "Code is ready to go"; Status.TextColor3 = GRAY; Status.TextSize = 12; Status.Font = Enum.Font.Gotham; Status.TextXAlignment = Enum.TextXAlignment.Left; Status.ZIndex = 4
 
     local Scroll = Instance.new("ScrollingFrame", CapturedPanel)
     Scroll.Position = UDim2.new(0,10,0,77); Scroll.Size = UDim2.new(1,-20,1,-87)
-    Scroll.BackgroundColor3 = BG2; Scroll.BackgroundTransparency = 0.2; Scroll.BorderSizePixel = 0; Scroll.ScrollBarThickness = 3
+    Scroll.ZIndex = 4; Scroll.BackgroundColor3 = BG2; Scroll.BackgroundTransparency = 0.2; Scroll.BorderSizePixel = 0; Scroll.ScrollBarThickness = 3
     Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y; Scroll.CanvasSize = UDim2.new()
     local sc = Instance.new("UICorner", Scroll); sc.CornerRadius = UDim.new(0,10)
     local list = Instance.new("UIListLayout", Scroll); list.Padding = UDim.new(0,5)
     local pad = Instance.new("UIPadding", Scroll); pad.PaddingTop = UDim.new(0,6); pad.PaddingBottom = UDim.new(0,6); pad.PaddingLeft = UDim.new(0,6); pad.PaddingRight = UDim.new(0,6)
 
-    local function AddCapture(text)
+    local function AddLog(text)
         table.insert(AllCaptured, text)
         local l = Instance.new("TextLabel", Scroll)
         l.Size = UDim2.new(1,-2,0,32); l.BackgroundColor3 = BG3; l.BackgroundTransparency = 0.15; l.BorderSizePixel = 0
-        l.Text = tostring(#AllCaptured) .. ".  " .. text; l.TextColor3 = WHITE; l.TextSize = 13; l.Font = Enum.Font.GothamMedium
-        l.TextXAlignment = Enum.TextXAlignment.Left; l.TextTruncate = Enum.TextTruncate.AtEnd; l.ClipsDescendants = true
+        l.Text = "•  " .. text; l.TextColor3 = WHITE; l.TextSize = 13; l.Font = Enum.Font.GothamMedium
+        l.ZIndex = 5; l.TextXAlignment = Enum.TextXAlignment.Left; l.TextTruncate = Enum.TextTruncate.AtEnd; l.ClipsDescendants = true
         local c = Instance.new("UICorner", l); c.CornerRadius = UDim.new(0,8)
         local p = Instance.new("UIPadding", l); p.PaddingLeft = UDim.new(0,8)
         task.defer(function()
             Scroll.CanvasPosition = Vector2.new(0, math.max(0, Scroll.AbsoluteCanvasSize.Y - Scroll.AbsoluteWindowSize.Y))
         end)
+    end
+
+    local function LogState(name, enabled)
+        AddLog(name .. " " .. (enabled and "enabled" or "disabled"))
     end
 
     local function MakeSwitch(name, y)
@@ -565,104 +698,12 @@ SettingsPanel.Size = UDim2.new(0,225,0,585)
     local riddleCorner = Instance.new("UICorner", RiddleToggle)
     riddleCorner.CornerRadius = UDim.new(1,0)
 
-    local APIKeyLabel = Instance.new("TextLabel", SettingsPanel)
-    APIKeyLabel.Size = UDim2.new(1,-28,0,18)
-    APIKeyLabel.Position = UDim2.new(0,14,0,92)
-    APIKeyLabel.BackgroundTransparency = 1
-    APIKeyLabel.Text = "AI API Key"
-    APIKeyLabel.TextColor3 = WHITE
-    APIKeyLabel.TextSize = 11
-    APIKeyLabel.Font = Enum.Font.GothamBold
-    APIKeyLabel.TextXAlignment = Enum.TextXAlignment.Left
-
-    local APIKeyBox = Instance.new("TextBox", SettingsPanel)
-    APIKeyBox.Size = UDim2.new(1,-28,0,30)
-    APIKeyBox.Position = UDim2.new(0,14,0,112)
-    APIKeyBox.BackgroundColor3 = BG2
-    APIKeyBox.BorderSizePixel = 0
-    APIKeyBox.Text = AIKey
-    APIKeyBox.PlaceholderText = "Paste API key..."
-    APIKeyBox.PlaceholderColor3 = GRAY
-    APIKeyBox.TextColor3 = WHITE
-    APIKeyBox.TextSize = 10
-    APIKeyBox.Font = Enum.Font.Code
-    APIKeyBox.ClearTextOnFocus = false
-    APIKeyBox.TextTruncate = Enum.TextTruncate.AtEnd
-    local apiKeyCorner = Instance.new("UICorner", APIKeyBox)
-    apiKeyCorner.CornerRadius = UDim.new(0,8)
-
-    local APIEndpointBox = Instance.new("TextBox", SettingsPanel)
-    APIEndpointBox.Size = UDim2.new(1,-28,0,28)
-    APIEndpointBox.Position = UDim2.new(0,14,0,148)
-    APIEndpointBox.BackgroundColor3 = BG2
-    APIEndpointBox.BorderSizePixel = 0
-    APIEndpointBox.Text = AIEndpoint
-    APIEndpointBox.PlaceholderText = "API endpoint"
-    APIEndpointBox.PlaceholderColor3 = GRAY
-    APIEndpointBox.TextColor3 = WHITE
-    APIEndpointBox.TextSize = 9
-    APIEndpointBox.Font = Enum.Font.Code
-    APIEndpointBox.ClearTextOnFocus = false
-    APIEndpointBox.TextTruncate = Enum.TextTruncate.AtEnd
-    local apiEndpointCorner = Instance.new("UICorner", APIEndpointBox)
-    apiEndpointCorner.CornerRadius = UDim.new(0,8)
-
-    local APIModelBox = Instance.new("TextBox", SettingsPanel)
-    APIModelBox.Size = UDim2.new(1,-102,0,28)
-    APIModelBox.Position = UDim2.new(0,14,0,182)
-    APIModelBox.BackgroundColor3 = BG2
-    APIModelBox.BorderSizePixel = 0
-    APIModelBox.Text = AIModel
-    APIModelBox.PlaceholderText = "Model"
-    APIModelBox.PlaceholderColor3 = GRAY
-    APIModelBox.TextColor3 = WHITE
-    APIModelBox.TextSize = 10
-    APIModelBox.Font = Enum.Font.Code
-    APIModelBox.ClearTextOnFocus = false
-    APIModelBox.TextTruncate = Enum.TextTruncate.AtEnd
-    local apiModelCorner = Instance.new("UICorner", APIModelBox)
-    apiModelCorner.CornerRadius = UDim.new(0,8)
-
-    local ClearAPIKeyButton = Instance.new("TextButton", SettingsPanel)
-    ClearAPIKeyButton.Size = UDim2.new(0,82,0,28)
-    ClearAPIKeyButton.Position = UDim2.new(1,-96,0,182)
-    ClearAPIKeyButton.BackgroundColor3 = RED
-    ClearAPIKeyButton.BorderSizePixel = 0
-    ClearAPIKeyButton.Text = "CLEAR KEY"
-    ClearAPIKeyButton.TextColor3 = WHITE
-    ClearAPIKeyButton.TextSize = 9
-    ClearAPIKeyButton.Font = Enum.Font.GothamBold
-    local clearKeyCorner = Instance.new("UICorner", ClearAPIKeyButton)
-    clearKeyCorner.CornerRadius = UDim.new(0,8)
-
-    local function RefreshAISettings()
-        AIKey = APIKeyBox.Text:gsub("^%s+",""):gsub("%s+$","")
-        AIEndpoint = APIEndpointBox.Text:gsub("^%s+",""):gsub("%s+$","")
-        AIModel = APIModelBox.Text:gsub("^%s+",""):gsub("%s+$","")
-
-        if AIEndpoint == "" then
-            AIEndpoint = "https://api.openai.com/v1/chat/completions"
-            APIEndpointBox.Text = AIEndpoint
-        end
-
-        if AIModel == "" then
-            AIModel = "gpt-4.1-mini"
-            APIModelBox.Text = AIModel
-        end
-
-        SavePreferences()
-    end
-
-    APIKeyBox.FocusLost:Connect(RefreshAISettings)
-    APIEndpointBox.FocusLost:Connect(RefreshAISettings)
-    APIModelBox.FocusLost:Connect(RefreshAISettings)
-
-    local PrepareToggle = MakeSwitch("Prepare", 220)
-    local AfterSubmitToggle, AfterSubmitLabel = MakeSwitch("After Submit", 261)
+    local PrepareToggle = MakeSwitch("Prepare", 100)
+    local AfterSubmitToggle, AfterSubmitLabel = MakeSwitch("After Submit", 141)
 local SmartRedeemerToggle, SmartRedeemerLabel
 
     local WIP = Instance.new("TextLabel", SettingsPanel)
-    WIP.Size = UDim2.new(0,44,0,18); WIP.Position = UDim2.new(0,101,0,268); WIP.BackgroundTransparency = 1
+    WIP.Size = UDim2.new(0,44,0,18); WIP.Position = UDim2.new(0,101,0,148); WIP.BackgroundTransparency = 1
     WIP.Text = "W.I.P"; WIP.TextColor3 = YELLOW; WIP.TextSize = 10; WIP.Font = Enum.Font.GothamBold
 
     local function PaintToggle(button, enabled)
@@ -676,18 +717,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     PaintToggle(PrepareToggle, PrepareEnabled)
     PaintToggle(AfterSubmitToggle, AfterSubmitEnabled)
 
-    ClearAPIKeyButton.MouseButton1Click:Connect(function()
-        AIKey = ""
-        APIKeyBox.Text = ""
-        RiddleSolverEnabled = false
-        RiddleActive = false
-        RiddleAnswers = {}
-        RiddleToggle.Text = "RIDDLE SOLVER"
-        RiddleToggle.BackgroundColor3 = RED
-        SavePreferences()
-        Status.Text = "API key cleared - Riddle Solver locked"
-        Status.TextColor3 = RED
-    end)
+
 
     CopierToggle.MouseButton1Click:Connect(function()
         CopierEnabled = not CopierEnabled
@@ -716,28 +746,16 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     end)
 
     RiddleToggle.MouseButton1Click:Connect(function()
-        RefreshAISettings()
-
-        if not RiddleSolverEnabled and AIKey == "" then
-            RiddleToggle.Text = "KEY REQUIRED"
-            RiddleToggle.BackgroundColor3 = RED
-            Status.Text = "Paste an API key before enabling Riddle Solver"
-            Status.TextColor3 = RED
-            return
-        end
-
         RiddleSolverEnabled = not RiddleSolverEnabled
 
         if RiddleSolverEnabled then
             CopierEnabled = false
             CopierToggle.Text = "COPIER OFF"
             CopierToggle.BackgroundColor3 = RED
-
             RiddleActive = false
             RiddleAnswers = {}
             CurrentMessages = {}
             WaitingForCode = false
-
             RiddleToggle.Text = "RIDDLE ON"
             RiddleToggle.BackgroundColor3 = GREEN
             Status.Text = "Riddle Solver waiting for riddle..."
@@ -752,12 +770,14 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         end
 
         SavePreferences()
+        LogState("Riddle Solver", RiddleSolverEnabled)
     end)
 
     PrepareToggle.MouseButton1Click:Connect(function()
         PrepareEnabled = not PrepareEnabled
         PaintToggle(PrepareToggle, PrepareEnabled)
         SavePreferences()
+        LogState("Prepare", PrepareEnabled)
         CurrentMessages = {}; WaitingForCode = false
         if CopierEnabled then Status.Text = PrepareEnabled and "Waiting for code..." or "Ready to capture..."; Status.TextColor3 = GRAY end
     end)
@@ -780,20 +800,21 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
         PaintToggle(AfterSubmitToggle, AfterSubmitEnabled)
         SavePreferences()
+        LogState("After Submit", AfterSubmitEnabled)
     end)
 
     -- Slider 1-5
     local SliderTitle = Instance.new("TextLabel", SettingsPanel)
-    SliderTitle.Size = UDim2.new(1,-28,0,24); SliderTitle.Position = UDim2.new(0,14,0,306); SliderTitle.BackgroundTransparency = 1
+    SliderTitle.Size = UDim2.new(1,-28,0,24); SliderTitle.Position = UDim2.new(0,14,0,187); SliderTitle.BackgroundTransparency = 1
     SliderTitle.Text = "Submit after messages"; SliderTitle.TextColor3 = WHITE; SliderTitle.TextSize = 13; SliderTitle.Font = Enum.Font.GothamBold; SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
 
     local Number = Instance.new("TextLabel", SettingsPanel)
-    Number.Size = UDim2.new(0,40,0,28); Number.Position = UDim2.new(1,-54,0,303); Number.BackgroundColor3 = BG3; Number.BorderSizePixel = 0
+    Number.Size = UDim2.new(0,40,0,28); Number.Position = UDim2.new(1,-54,0,184); Number.BackgroundColor3 = BG3; Number.BorderSizePixel = 0
     Number.Text = tostring(SubmitAfter); Number.TextColor3 = WHITE; Number.TextSize = 14; Number.Font = Enum.Font.GothamBold
     local nc = Instance.new("UICorner", Number); nc.CornerRadius = UDim.new(0,8)
 
     local Slider = Instance.new("Frame", SettingsPanel)
-    Slider.Size = UDim2.new(1,-36,0,8); Slider.Position = UDim2.new(0,18,0,350); Slider.BackgroundColor3 = BG3; Slider.BorderSizePixel = 0
+    Slider.Size = UDim2.new(1,-36,0,8); Slider.Position = UDim2.new(0,18,0,231); Slider.BackgroundColor3 = BG3; Slider.BorderSizePixel = 0
     local slc = Instance.new("UICorner", Slider); slc.CornerRadius = UDim.new(1,0)
     local Fill = Instance.new("Frame", Slider)
     Fill.Size = UDim2.new((SubmitAfter-1)/4,0,1,0); Fill.BackgroundColor3 = PURPLE; Fill.BorderSizePixel = 0
@@ -806,16 +827,16 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     for i=1,5 do
         local n = Instance.new("TextLabel", SettingsPanel)
-        n.Size = UDim2.new(0,24,0,20); n.AnchorPoint = Vector2.new(0.5,0); n.Position = UDim2.new((i-1)/4,0,0,362)
+        n.Size = UDim2.new(0,24,0,20); n.AnchorPoint = Vector2.new(0.5,0); n.Position = UDim2.new((i-1)/4,0,0,243)
         n.BackgroundTransparency = 1; n.Text = tostring(i); n.TextColor3 = GRAY; n.TextSize = 11; n.Font = Enum.Font.GothamMedium
     end
 
     -- Smart Redeemer sits directly below the Submit After slider.
-    SmartRedeemerToggle, SmartRedeemerLabel = MakeSwitch("Smart Redeemer", 391)
+    SmartRedeemerToggle, SmartRedeemerLabel = MakeSwitch("Smart Redeemer", 272)
 
     local SmartWIP = Instance.new("TextLabel", SettingsPanel)
     SmartWIP.Size = UDim2.new(0,44,0,18)
-    SmartWIP.Position = UDim2.new(0,101,0,398)
+    SmartWIP.Position = UDim2.new(0,101,0,279)
     SmartWIP.BackgroundTransparency = 1
     SmartWIP.Text = "W.I.P"
     SmartWIP.TextColor3 = YELLOW
@@ -851,6 +872,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         end
 
         SavePreferences()
+        LogState("Smart Redeemer", SmartRedeemerEnabled)
     end)
 
     local dragging = false
@@ -869,7 +891,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     -- Detection status
     local DetectStatus = Instance.new("TextLabel", SettingsPanel)
-    DetectStatus.Size = UDim2.new(1,-28,0,72); DetectStatus.Position = UDim2.new(0,14,0,435); DetectStatus.BackgroundColor3 = BG2; DetectStatus.BackgroundTransparency = 0.15; DetectStatus.BorderSizePixel = 0
+    DetectStatus.Size = UDim2.new(1,-28,0,56); DetectStatus.Position = UDim2.new(0,14,0,312); DetectStatus.BackgroundColor3 = BG2; DetectStatus.BackgroundTransparency = 0.15; DetectStatus.BorderSizePixel = 0
     DetectStatus.TextColor3 = YELLOW; DetectStatus.TextSize = 11; DetectStatus.Font = Enum.Font.Code; DetectStatus.TextXAlignment = Enum.TextXAlignment.Left; DetectStatus.TextYAlignment = Enum.TextYAlignment.Top; DetectStatus.TextWrapped = true; DetectStatus.ClipsDescendants = true
     local dc = Instance.new("UICorner", DetectStatus); dc.CornerRadius = UDim.new(0,9)
     local dp = Instance.new("UIPadding", DetectStatus); dp.PaddingLeft = UDim.new(0,8); dp.PaddingTop = UDim.new(0,7)
@@ -878,7 +900,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     local ResetButton = Instance.new("TextButton", SettingsPanel)
     ResetButton.Name = "ResetData"
     ResetButton.Size = UDim2.new(1,-28,0,32)
-    ResetButton.Position = UDim2.new(0,14,1,-40)
+    ResetButton.Position = UDim2.new(0,14,0,374)
     ResetButton.BackgroundColor3 = ORANGE
     ResetButton.BorderSizePixel = 0
     ResetButton.Text = "RESET CODE DATA"
@@ -918,10 +940,61 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         print("CodeSniper data reset")
     end)
 
+    local BrainrotFooter = Instance.new("TextLabel", SettingsPanel)
+    BrainrotFooter.Size = UDim2.new(1,-28,0,54)
+    BrainrotFooter.Position = UDim2.new(0,14,1,-64)
+    BrainrotFooter.BackgroundTransparency = 1
+    BrainrotFooter.Text = "STEAL A BRAINROT"
+    BrainrotFooter.TextColor3 = Color3.fromRGB(255,205,20)
+    BrainrotFooter.TextSize = 18
+    BrainrotFooter.Font = Enum.Font.GothamBlack
+    BrainrotFooter.TextWrapped = true
+    BrainrotFooter.ZIndex = 5
+    local footerStroke = Instance.new("UIStroke",BrainrotFooter)
+    footerStroke.Color = Color3.fromRGB(255,100,0)
+    footerStroke.Thickness = 1.6
+    footerStroke.Transparency = 0.14
+    local footerGrad = Instance.new("UIGradient",BrainrotFooter)
+    footerGrad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0,Color3.fromRGB(255,235,35)),
+        ColorSequenceKeypoint.new(0.35,Color3.fromRGB(255,145,10)),
+        ColorSequenceKeypoint.new(0.7,Color3.fromRGB(40,220,255)),
+        ColorSequenceKeypoint.new(1,Color3.fromRGB(0,105,255))
+    })
+
+    task.spawn(function()
+        while BrainrotFooter.Parent do
+            footerGrad.Rotation=(footerGrad.Rotation+3)%360
+            Tween(BrainrotFooter,0.6,{
+                Size=UDim2.new(1,-18,0,58),
+                Position=UDim2.new(0,9,1,-69),
+                TextSize=20
+            },Enum.EasingStyle.Sine,Enum.EasingDirection.InOut)
+            task.wait(0.62)
+            Tween(BrainrotFooter,0.6,{
+                Size=UDim2.new(1,-28,0,54),
+                Position=UDim2.new(0,14,1,-64),
+                TextSize=18
+            },Enum.EasingStyle.Sine,Enum.EasingDirection.InOut)
+            task.wait(0.62)
+        end
+    end)
+
     local function UpdateDetected()
-        FindCodeBox(); FindSubmit()
-        DetectStatus.Text = "CODEREDEEM: " .. (CodeRedeemFrame and "FOUND" or "WAITING") .. "\nTEXTBOX: " .. (CodeBox and "FOUND" or "WAITING") .. "\nSUBMIT: " .. (SubmitButton and "FOUND" or "WAITING")
-        DetectStatus.TextColor3 = (CodeBox and SubmitButton) and GREEN or YELLOW
+        FindCodeBox()
+        FindSubmit()
+
+        if CodeRedeemFrame and CodeBox and SubmitButton then
+            DetectStatus.Text = "READY TO GO\nOpen the Codes menu to start CodeSniper."
+            DetectStatus.TextColor3 = GREEN
+        else
+            local missing = {}
+            if not CodeRedeemFrame then table.insert(missing, "CodeRedeem") end
+            if not CodeBox then table.insert(missing, "TextBox") end
+            if not SubmitButton then table.insert(missing, "Redeem button") end
+            DetectStatus.Text = "WAITING FOR: " .. table.concat(missing, ", ")
+            DetectStatus.TextColor3 = YELLOW
+        end
     end
 
     -- Prepare phrases
@@ -1134,85 +1207,6 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         return tostring(result)
     end
 
-    local function AskAI(question)
-        if AIKey == "" or AIEndpoint == "" or AIModel == "" then
-            return nil
-        end
-
-        local requester = (syn and syn.request) or http_request or request
-        if not requester then
-            return nil
-        end
-
-        local memoryParts = {}
-        for k, v in pairs(RiddleFacts) do
-            if v ~= nil then
-                table.insert(memoryParts, tostring(k) .. "=" .. tostring(v))
-            end
-        end
-
-        local payload = {
-            model = AIModel,
-            messages = {
-                {
-                    role = "system",
-                    content = "You solve riddles and memory questions. Return only the exact short answer with no explanation."
-                },
-                {
-                    role = "user",
-                    content = "Remembered facts: "
-                        .. (#memoryParts > 0 and table.concat(memoryParts, ", ") or "none")
-                        .. "\\nQuestion: " .. tostring(question)
-                }
-            },
-            temperature = 0
-        }
-
-        local ok, response = pcall(function()
-            return requester({
-                Url = AIEndpoint,
-                Method = "POST",
-                Headers = {
-                    ["Authorization"] = "Bearer " .. AIKey,
-                    ["Content-Type"] = "application/json"
-                },
-                Body = HttpService:JSONEncode(payload)
-            })
-        end)
-
-        if not ok or not response then return nil end
-
-        local status = tonumber(response.StatusCode or response.Status or 0)
-        if status ~= 0 and (status < 200 or status >= 300) then
-            return nil
-        end
-
-        local raw = response.Body or response.body
-        if type(raw) ~= "string" or raw == "" then return nil end
-
-        local ok2, data = pcall(function()
-            return HttpService:JSONDecode(raw)
-        end)
-        if not ok2 or type(data) ~= "table" then return nil end
-
-        local answer
-        if data.choices and data.choices[1]
-        and data.choices[1].message
-        and type(data.choices[1].message.content) == "string" then
-            answer = data.choices[1].message.content
-        elseif type(data.output_text) == "string" then
-            answer = data.output_text
-        end
-
-        if not answer then return nil end
-
-        answer = tostring(answer)
-        answer = answer:gsub("^%s+",""):gsub("%s+$","")
-        answer = answer:gsub("\\r.*$", ""):gsub("\\n.*$", "")
-        answer = answer:gsub('^["\']', ""):gsub('["\']$', "")
-        return answer ~= "" and answer or nil
-    end
-
     local function SolveRiddleQuestion(question)
         local q = CleanText(question)
 
@@ -1355,13 +1349,10 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             return true
         end
 
-        local answer = AskAI(raw)
-        if not answer then
-            answer = SolveRiddleQuestion(raw)
-        end
+        local answer = SolveRiddleQuestion(raw)
         if answer and answer ~= "" then
             table.insert(RiddleAnswers, answer)
-            AddCapture("Q: " .. clean .. " -> " .. CleanText(answer))
+            AddLog("Riddle solved: " .. clean .. " -> " .. CleanText(answer))
             Status.Text = "Solved: " .. CleanText(answer) .. " (" .. #RiddleAnswers .. "/5)"
             Status.TextColor3 = GREEN
 
@@ -1383,7 +1374,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     if SmartRedeemerEnabled then
         table.insert(CurrentMessages, text)
-        AddCapture(text)
+        AddLog("Captured: " .. text)
 
         if #CurrentMessages < 3 then
             Status.Text = "Smart captured " .. #CurrentMessages .. "/3"
@@ -1457,7 +1448,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     end
 
     table.insert(CurrentMessages,text)
-    AddCapture(text)
+    AddLog("Captured: " .. text)
     Status.Text = "Captured " .. #CurrentMessages .. "/" .. SubmitAfter .. " message(s)"
     Status.TextColor3 = GREEN
     TypeIntoCodeBox()
@@ -1575,10 +1566,6 @@ local function HandlePopup(obj)
     Fill.Size = UDim2.new(startupSnap,0,1,0)
     Knob.Position = UDim2.new(startupSnap,0,0.5,0)
     PaintToggle(CopierToggle, CopierEnabled)
-    if AIKey == "" then
-        RiddleSolverEnabled = false
-    end
-
     if RiddleSolverEnabled then
         CopierEnabled = false
         CopierToggle.Text = "COPIER OFF"
