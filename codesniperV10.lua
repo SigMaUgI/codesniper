@@ -990,26 +990,51 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         AddLog("Logs reset")
     end)
 
-    -- EXACT Steal a Brainrot logo image supplied by the user.
-    -- Put steal_a_brainrot.png beside this script OR upload it to this repo:
-    -- https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/steal_a_brainrot.png
+    -- Steal a Brainrot logo.
+    -- Mobile-safe loading: try executor custom asset APIs first, then Roblox asset fallback.
     local BRAINROT_IMAGE_URL = "https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/steal_a_brainrot.png"
     local BRAINROT_LOCAL_FILE = "steal_a_brainrot.png"
-    local BRAINROT_IMAGE = ""
 
-    pcall(function()
-        if getcustomasset then
-            if isfile and isfile(BRAINROT_LOCAL_FILE) then
-                BRAINROT_IMAGE = getcustomasset(BRAINROT_LOCAL_FILE)
-            elseif writefile then
-                local raw = game:HttpGet(BRAINROT_IMAGE_URL)
-                if raw and #raw > 100 then
-                    writefile(BRAINROT_LOCAL_FILE, raw)
-                    BRAINROT_IMAGE = getcustomasset(BRAINROT_LOCAL_FILE)
+    -- IMPORTANT:
+    -- For the most reliable mobile support, upload steal_a_brainrot.png to Roblox
+    -- and replace 0 below with the Roblox image/decal asset ID.
+    local BRAINROT_ROBLOX_ASSET_ID = 0
+
+    local function LoadBrainrotImage()
+        local customAsset = getcustomasset or getsynasset
+        local image = ""
+
+        if customAsset then
+            -- Existing local copy first.
+            pcall(function()
+                if isfile and isfile(BRAINROT_LOCAL_FILE) then
+                    image = customAsset(BRAINROT_LOCAL_FILE)
                 end
+            end)
+
+            -- Download from GitHub if the local file is missing.
+            if image == "" then
+                pcall(function()
+                    if writefile then
+                        local raw = game:HttpGet(BRAINROT_IMAGE_URL)
+                        if raw and #raw > 100 then
+                            writefile(BRAINROT_LOCAL_FILE, raw)
+                            image = customAsset(BRAINROT_LOCAL_FILE)
+                        end
+                    end
+                end)
             end
         end
-    end)
+
+        -- Roblox-hosted fallback works much more consistently on mobile.
+        if image == "" and BRAINROT_ROBLOX_ASSET_ID ~= 0 then
+            image = "rbxassetid://" .. tostring(BRAINROT_ROBLOX_ASSET_ID)
+        end
+
+        return image
+    end
+
+    local BRAINROT_IMAGE = LoadBrainrotImage()
 
     local BrainrotLogo = Instance.new("ImageLabel", Gui)
     BrainrotLogo.Name = "BrainrotLogo"
@@ -1025,9 +1050,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         if not SettingsPanel.Parent then return end
 
         local collapsed = SettingsPanel:GetAttribute("Collapsed") == true
-        local usable = BRAINROT_IMAGE ~= ""
-
-        if collapsed or SettingsPanel.Size.Y.Offset <= 60 or not usable then
+        if collapsed or SettingsPanel.Size.Y.Offset <= 60 or BRAINROT_IMAGE == "" then
             BrainrotLogo.Visible = false
             return
         end
@@ -1042,8 +1065,8 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         local panelPos = SettingsPanel.Position
         local panelHeight = SettingsPanel.Size.Y.Offset
 
-        -- Center sits exactly on the Config bottom edge:
-        -- half the image is inside the menu and half is outside.
+        -- BrainrotLogo is a Gui sibling of Config, so it can hang outside the panel
+        -- without being clipped. GlobalScale automatically makes it 50% size on phone.
         BrainrotLogo.Size = UDim2.new(0,178 + grow,0,100 + math.floor(grow * 0.56))
         BrainrotLogo.Position = UDim2.new(
             panelPos.X.Scale,
