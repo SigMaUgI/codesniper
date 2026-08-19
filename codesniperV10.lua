@@ -426,6 +426,7 @@ local SmartAttemptId = 0
         f.Active = true
         f.ClipsDescendants = true
         f.Parent = Gui
+        f:SetAttribute("Collapsed", false)
 
         local c = Instance.new("UICorner", f); c.CornerRadius = UDim.new(0,16)
         local st = Instance.new("UIStroke", f); st.Color = ORANGE; st.Transparency = 0.28; st.Thickness = 1.4
@@ -501,6 +502,7 @@ local SmartAttemptId = 0
         local collapsed = false
         collapse.MouseButton1Click:Connect(function()
             collapsed = not collapsed
+            f:SetAttribute("Collapsed", collapsed)
             collapse.Text = collapsed and "+" or "−"
 
             if collapsed then
@@ -638,7 +640,7 @@ local SmartAttemptId = 0
         holder.BackgroundTransparency=1
         holder.Visible=false
         holder.ClipsDescendants=true
-        holder.ZIndex=2 -- behind buttons/text, above wind
+        holder.ZIndex=1 -- behind every Config button/text/logical control
 
         local segments = {}
 
@@ -647,7 +649,7 @@ local SmartAttemptId = 0
             seg.AnchorPoint=Vector2.new(0.5,0)
             seg.BackgroundColor3=Color3.fromRGB(255,235,0)
             seg.BorderSizePixel=0
-            seg.ZIndex=2
+            seg.ZIndex=1
 
             local sc=Instance.new("UICorner",seg)
             sc.CornerRadius=UDim.new(1,0)
@@ -692,7 +694,7 @@ local SmartAttemptId = 0
     local function FlashConfigLightning()
         -- Do nothing if Config is collapsed/closed.
         if not SettingsPanel.Parent then return end
-        if SettingsPanel.Size.Y.Offset <= 60 then
+        if SettingsPanel:GetAttribute("Collapsed") == true or SettingsPanel.Size.Y.Offset <= 60 then
             ConfigLightning.Visible = false
             return
         end
@@ -725,7 +727,7 @@ local SmartAttemptId = 0
     task.spawn(function()
         while Gui.Parent do
             task.wait(math.random(0,30))
-            if SettingsPanel.Size.Y.Offset > 60 then
+            if SettingsPanel:GetAttribute("Collapsed") ~= true and SettingsPanel.Size.Y.Offset > 60 then
                 task.spawn(FlashConfigLightning)
             else
                 ConfigLightning.Visible = false
@@ -928,7 +930,8 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     -- Detection status
     local DetectStatus = Instance.new("TextLabel", SettingsBody)
     DetectStatus.ZIndex = 5
-    DetectStatus.Size = UDim2.new(1,-28,0,48); DetectStatus.Position = UDim2.new(0,14,0,302); DetectStatus.BackgroundColor3 = BG2; DetectStatus.BackgroundTransparency = 0.15; DetectStatus.BorderSizePixel = 0
+    DetectStatus.Size = UDim2.new(1,-28,0,48); DetectStatus.AnchorPoint = Vector2.new(0,1)
+    DetectStatus.Position = UDim2.new(0,14,1,-54); DetectStatus.BackgroundColor3 = BG2; DetectStatus.BackgroundTransparency = 0.15; DetectStatus.BorderSizePixel = 0
     DetectStatus.TextColor3 = YELLOW; DetectStatus.TextSize = 11; DetectStatus.Font = Enum.Font.Code; DetectStatus.TextXAlignment = Enum.TextXAlignment.Left; DetectStatus.TextYAlignment = Enum.TextYAlignment.Top; DetectStatus.TextWrapped = true; DetectStatus.ClipsDescendants = true
     local dc = Instance.new("UICorner", DetectStatus); dc.CornerRadius = UDim.new(0,9)
     local dp = Instance.new("UIPadding", DetectStatus); dp.PaddingLeft = UDim.new(0,8); dp.PaddingTop = UDim.new(0,7)
@@ -938,7 +941,8 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     ResetButton.ZIndex = 5
     ResetButton.Name = "ResetData"
     ResetButton.Size = UDim2.new(1,-28,0,34)
-    ResetButton.Position = UDim2.new(0,14,1,-48)
+    ResetButton.AnchorPoint = Vector2.new(0,1)
+    ResetButton.Position = UDim2.new(0,14,1,-10)
     ResetButton.BackgroundColor3 = ORANGE
     ResetButton.BorderSizePixel = 0
     ResetButton.Text = "RESET LOGS"
@@ -978,8 +982,9 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         AddLog("Logs reset")
     end)
 
-    -- Brainrot logo: upload the transparent PNG to your GitHub repo as brainrot_logo.png.
-    -- The script downloads it locally when the executor supports custom assets.
+    -- Brainrot logo at the bottom of Config, half inside / half outside.
+    -- Upload the transparent logo PNG to:
+    -- https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/brainrot_logo.png
     local BRAINROT_IMAGE_URL = "https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/brainrot_logo.png"
     local BRAINROT_IMAGE = ""
 
@@ -1002,33 +1007,68 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     BrainrotLogo.ScaleType = Enum.ScaleType.Fit
     BrainrotLogo.ZIndex = 40
 
+    -- Fallback so something ALWAYS shows even if custom assets are unsupported.
+    local BrainrotFallback = Instance.new("TextLabel", Gui)
+    BrainrotFallback.Name = "BrainrotFallback"
+    BrainrotFallback.Size = UDim2.new(0,205,0,56)
+    BrainrotFallback.AnchorPoint = Vector2.new(0.5,0.5)
+    BrainrotFallback.BackgroundTransparency = 1
+    BrainrotFallback.Text = "STEAL A BRAINROT"
+    BrainrotFallback.TextColor3 = Color3.fromRGB(255,210,25)
+    BrainrotFallback.TextSize = 19
+    BrainrotFallback.Font = Enum.Font.GothamBlack
+    BrainrotFallback.TextWrapped = true
+    BrainrotFallback.ZIndex = 39
+
+    local fallbackStroke = Instance.new("UIStroke", BrainrotFallback)
+    fallbackStroke.Color = Color3.fromRGB(255,105,0)
+    fallbackStroke.Thickness = 1.7
+    fallbackStroke.Transparency = 0.12
+
+    local fallbackGrad = Instance.new("UIGradient", BrainrotFallback)
+    fallbackGrad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255,230,35)),
+        ColorSequenceKeypoint.new(0.40, Color3.fromRGB(255,145,10)),
+        ColorSequenceKeypoint.new(0.70, Color3.fromRGB(60,220,255)),
+        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(0,105,255))
+    })
+
     local logoPulse = 0
     RunService.RenderStepped:Connect(function(dt)
-        if not BrainrotLogo.Parent or not SettingsPanel.Parent then return end
+        if not SettingsPanel.Parent then return end
 
-        local panelPos = SettingsPanel.Position
-        local panelSize = SettingsPanel.Size
-
-        -- Hide logo when Config is collapsed.
-        if panelSize.Y.Offset <= 60 then
+        local collapsed = SettingsPanel:GetAttribute("Collapsed") == true
+        if collapsed or SettingsPanel.Size.Y.Offset <= 60 then
             BrainrotLogo.Visible = false
+            BrainrotFallback.Visible = false
             return
         end
 
-        BrainrotLogo.Visible = true
+        local hasImage = BRAINROT_IMAGE ~= ""
+        BrainrotLogo.Visible = hasImage
+        BrainrotFallback.Visible = not hasImage
+
         logoPulse += dt * 2.4
+        fallbackGrad.Rotation = (fallbackGrad.Rotation + dt * 30) % 360
 
         local pulse = (math.sin(logoPulse) + 1) * 0.5
         local grow = math.floor(pulse * 8)
         local rise = math.floor(pulse * 5)
 
+        local panelPos = SettingsPanel.Position
+        local panelHeight = SettingsPanel.Size.Y.Offset
+
+        local commonXScale = panelPos.X.Scale
+        local commonXOffset = panelPos.X.Offset + 117
+        local commonYScale = panelPos.Y.Scale
+        -- Half inside / half outside the Config bottom edge.
+        local commonYOffset = panelPos.Y.Offset + panelHeight - 4 - rise
+
         BrainrotLogo.Size = UDim2.new(0,190 + grow,0,82 + math.floor(grow * 0.45))
-        BrainrotLogo.Position = UDim2.new(
-            panelPos.X.Scale,
-            panelPos.X.Offset + 117,
-            panelPos.Y.Scale,
-            panelPos.Y.Offset + panelSize.Y.Offset - 2 - rise
-        )
+        BrainrotLogo.Position = UDim2.new(commonXScale,commonXOffset,commonYScale,commonYOffset)
+
+        BrainrotFallback.Size = UDim2.new(0,205 + grow,0,56 + math.floor(grow * 0.3))
+        BrainrotFallback.Position = UDim2.new(commonXScale,commonXOffset,commonYScale,commonYOffset)
     end)
 
     local function UpdateDetected()
