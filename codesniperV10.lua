@@ -459,6 +459,15 @@ local SmartAttemptId = 0
             NumberSequenceKeypoint.new(1,1)
         })
 
+        local body = Instance.new("Frame", f)
+        body.Name = "PanelBody"
+        body.Size = UDim2.new(1,0,1,-48)
+        body.Position = UDim2.new(0,0,0,48)
+        body.BackgroundTransparency = 1
+        body.BorderSizePixel = 0
+        body.ClipsDescendants = true
+        body.ZIndex = 2
+
         local l = Instance.new("TextLabel", top)
         l.Size = UDim2.new(1,-72,1,0)
         l.Position = UDim2.new(0,14,0,0)
@@ -495,12 +504,26 @@ local SmartAttemptId = 0
             collapse.Text = collapsed and "+" or "−"
 
             if collapsed then
+                body.Visible = false
                 fade.Visible = false
-                c.CornerRadius = UDim.new(0,16)
-                Tween(f,0.28,{Size = UDim2.new(0,235,0,48)},Enum.EasingStyle.Quint)
+                f.BackgroundTransparency = 1
+                st.Transparency = 0.18
+
+                if f.Name == "ConfigPanel" and ConfigLightning then
+                    ConfigLightning.Visible = false
+                end
+
+                Tween(f,0.26,{Size = UDim2.new(0,235,0,48)},Enum.EasingStyle.Quint)
             else
+                f.BackgroundTransparency = 0.04
+                st.Transparency = 0.28
                 fade.Visible = true
                 Tween(f,0.34,{Size = UDim2.new(0,235,0,fullHeight)},Enum.EasingStyle.Back)
+                task.delay(0.08,function()
+                    if not collapsed then
+                        body.Visible = true
+                    end
+                end)
             end
         end)
 
@@ -545,7 +568,7 @@ local SmartAttemptId = 0
             end
         end)
 
-        return f
+        return f, body
     end
 
     local GlobalScale=Instance.new("UIScale",Gui)
@@ -567,8 +590,8 @@ local SmartAttemptId = 0
         workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(UpdateDeviceScale)
     end
 
-    local CapturedPanel = MakePanel("Logs", UDim2.new(1,-486,0.5,-190), 380)
-    local SettingsPanel = MakePanel("Config", UDim2.new(1,-243,0.5,-200), 400)
+    local CapturedPanel, CapturedBody = MakePanel("Logs", UDim2.new(1,-486,0.5,-190), 380)
+    local SettingsPanel, SettingsBody = MakePanel("Config", UDim2.new(1,-243,0.5,-200), 400)
 
     local function AddAtmosphere(panel)
         local fx=Instance.new("Frame",panel)
@@ -609,78 +632,113 @@ local SmartAttemptId = 0
 
     local function MakeLightning(parent)
         local holder=Instance.new("Frame",parent)
+        holder.Name="ConfigLightning"
         holder.Size=UDim2.fromScale(1,1)
+        holder.Position=UDim2.fromScale(0,0)
         holder.BackgroundTransparency=1
         holder.Visible=false
-        holder.ZIndex=30
+        holder.ClipsDescendants=true
+        holder.ZIndex=2 -- behind buttons/text, above wind
 
-        local pieces={
-            {0.53,0.03,4,65,-13},{0.50,0.17,5,66,11},{0.57,0.31,5,70,-12},
-            {0.52,0.46,5,66,10},{0.58,0.61,4,66,-10},{0.53,0.76,4,60,9}
-        }
-        for _,s in ipairs(pieces) do
+        local segments = {}
+
+        for i=1,6 do
             local seg=Instance.new("Frame",holder)
             seg.AnchorPoint=Vector2.new(0.5,0)
-            seg.Position=UDim2.new(s[1],0,s[2],0)
-            seg.Size=UDim2.new(0,s[3],0,s[4])
             seg.BackgroundColor3=Color3.fromRGB(255,235,0)
             seg.BorderSizePixel=0
-            seg.Rotation=s[5]
-            local sc=Instance.new("UICorner",seg); sc.CornerRadius=UDim.new(1,0)
+            seg.ZIndex=2
+
+            local sc=Instance.new("UICorner",seg)
+            sc.CornerRadius=UDim.new(1,0)
+
             local glow=Instance.new("UIStroke",seg)
             glow.Color=Color3.fromRGB(255,185,0)
-            glow.Thickness=3
-            glow.Transparency=0.15
+            glow.Thickness=2.2
+            glow.Transparency=0.18
+
+            table.insert(segments,seg)
         end
-        return holder
-    end
 
-    local LogLightning=MakeLightning(CapturedPanel)
-    local ConfigLightning=MakeLightning(SettingsPanel)
+        local function RandomizeBolt()
+            -- Smaller bolt and randomized placement inside Config only.
+            local baseX = math.random(35,75) / 100
+            local startY = math.random(8,30) / 100
 
-    local function FlashPanel(panel,lightning)
-        lightning.Visible=true
-        local flash=Instance.new("Frame",panel)
-        flash.Size=UDim2.fromScale(1,1)
-        flash.BackgroundColor3=Color3.fromRGB(255,238,140)
-        flash.BackgroundTransparency=0.86
-        flash.BorderSizePixel=0
-        flash.ZIndex=25
-        local fc=Instance.new("UICorner",flash); fc.CornerRadius=UDim.new(0,16)
+            local y = startY
+            local x = baseX
 
-        local changed={}
-        for _,obj in ipairs(panel:GetDescendants()) do
-            if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
-                table.insert(changed,{obj=obj,color=obj.TextColor3})
-                obj.TextColor3=Color3.fromRGB(255,250,218)
+            for i,seg in ipairs(segments) do
+                local h = math.random(34,48)
+                local w = math.random(3,4)
+                local rot = math.random(-18,18)
+
+                seg.Size = UDim2.new(0,w,0,h)
+                seg.Position = UDim2.new(x,0,y,0)
+                seg.Rotation = rot
+
+                -- Zig-zag horizontally while descending.
+                x = math.clamp(x + math.random(-9,9)/100, 0.18, 0.82)
+                y = y + math.random(9,13)/100
             end
         end
 
+        holder:SetAttribute("RandomizeBolt", true)
+        return holder, RandomizeBolt
+    end
+
+    local ConfigLightning, RandomizeConfigLightning = MakeLightning(SettingsPanel)
+
+    local function FlashConfigLightning()
+        -- Do nothing if Config is collapsed/closed.
+        if not SettingsPanel.Parent then return end
+        if SettingsPanel.Size.Y.Offset <= 60 then
+            ConfigLightning.Visible = false
+            return
+        end
+
+        RandomizeConfigLightning()
+        ConfigLightning.Visible = true
+
+        -- Soft flash behind all Config controls only.
+        local flash=Instance.new("Frame",SettingsPanel)
+        flash.Size=UDim2.fromScale(1,1)
+        flash.BackgroundColor3=Color3.fromRGB(255,238,140)
+        flash.BackgroundTransparency=0.90
+        flash.BorderSizePixel=0
+        flash.ZIndex=2
+        flash.ClipsDescendants=true
+
+        local fc=Instance.new("UICorner",flash)
+        fc.CornerRadius=UDim.new(0,16)
+
         task.wait(0.08)
-        lightning.Visible=false
+        ConfigLightning.Visible=false
         Tween(flash,0.10,{BackgroundTransparency=1},Enum.EasingStyle.Quad)
         task.wait(0.10)
 
-        for _,item in ipairs(changed) do
-            if item.obj and item.obj.Parent then item.obj.TextColor3=item.color end
+        if flash and flash.Parent then
+            flash:Destroy()
         end
-        flash:Destroy()
     end
 
     task.spawn(function()
         while Gui.Parent do
             task.wait(math.random(0,30))
-            task.spawn(function() FlashPanel(CapturedPanel,LogLightning) end)
-            task.spawn(function() FlashPanel(SettingsPanel,ConfigLightning) end)
+            if SettingsPanel.Size.Y.Offset > 60 then
+                task.spawn(FlashConfigLightning)
+            else
+                ConfigLightning.Visible = false
+            end
         end
     end)
 
 
-    local Status = Instance.new("TextLabel", CapturedPanel)
+    local Status = Instance.new("TextLabel", CapturedBody)
     Status.Size = UDim2.new(1,-24,0,22); Status.Position = UDim2.new(0,12,0,51); Status.BackgroundTransparency = 1
     Status.Text = "Code is ready to go"; Status.TextColor3 = GRAY; Status.TextSize = 12; Status.Font = Enum.Font.Gotham; Status.TextXAlignment = Enum.TextXAlignment.Left; Status.ZIndex = 4
 
-    local Scroll = Instance.new("ScrollingFrame", CapturedPanel)
+    local Scroll = Instance.new("ScrollingFrame", CapturedBody)
     Scroll.Position = UDim2.new(0,10,0,77); Scroll.Size = UDim2.new(1,-20,1,-87)
     Scroll.ZIndex = 4; Scroll.BackgroundColor3 = BG2; Scroll.BackgroundTransparency = 0.2; Scroll.BorderSizePixel = 0; Scroll.ScrollBarThickness = 3
     Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y; Scroll.CanvasSize = UDim2.new()
@@ -706,10 +764,10 @@ local SmartAttemptId = 0
     end
 
     local function MakeSwitch(name, y)
-        local l = Instance.new("TextLabel", SettingsPanel)
+        local l = Instance.new("TextLabel", SettingsBody)
         l.Size = UDim2.new(0,110,0,32); l.Position = UDim2.new(0,14,0,y); l.BackgroundTransparency = 1
         l.Text = name; l.TextColor3 = WHITE; l.TextSize = 14; l.Font = Enum.Font.GothamMedium; l.TextXAlignment = Enum.TextXAlignment.Left
-        local b = Instance.new("TextButton", SettingsPanel)
+        local b = Instance.new("TextButton", SettingsBody)
         b.Size = UDim2.new(0,78,0,32); b.Position = UDim2.new(1,-92,0,y); b.BorderSizePixel = 0; b.AutoButtonColor = false
         b.TextColor3 = WHITE; b.TextSize = 12; b.Font = Enum.Font.GothamBold
         local c = Instance.new("UICorner", b); c.CornerRadius = UDim.new(1,0)
@@ -788,16 +846,19 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     end)
 
     -- Slider 1-5
-    local SliderTitle = Instance.new("TextLabel", SettingsPanel)
+    local SliderTitle = Instance.new("TextLabel", SettingsBody)
+    SliderTitle.ZIndex = 5
     SliderTitle.Size = UDim2.new(1,-28,0,24); SliderTitle.Position = UDim2.new(0,14,0,174); SliderTitle.BackgroundTransparency = 1
     SliderTitle.Text = "Submit after messages"; SliderTitle.TextColor3 = WHITE; SliderTitle.TextSize = 13; SliderTitle.Font = Enum.Font.GothamBold; SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
 
-    local Number = Instance.new("TextLabel", SettingsPanel)
+    local Number = Instance.new("TextLabel", SettingsBody)
+    Number.ZIndex = 5
     Number.Size = UDim2.new(0,40,0,28); Number.Position = UDim2.new(1,-54,0,171); Number.BackgroundColor3 = BG3; Number.BorderSizePixel = 0
     Number.Text = tostring(SubmitAfter); Number.TextColor3 = WHITE; Number.TextSize = 14; Number.Font = Enum.Font.GothamBold
     local nc = Instance.new("UICorner", Number); nc.CornerRadius = UDim.new(0,8)
 
-    local Slider = Instance.new("Frame", SettingsPanel)
+    local Slider = Instance.new("Frame", SettingsBody)
+    Slider.ZIndex = 5
     Slider.Size = UDim2.new(1,-36,0,8); Slider.Position = UDim2.new(0,18,0,216); Slider.BackgroundColor3 = BG3; Slider.BorderSizePixel = 0
     local slc = Instance.new("UICorner", Slider); slc.CornerRadius = UDim.new(1,0)
     local Fill = Instance.new("Frame", Slider)
@@ -810,9 +871,9 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     local kc = Instance.new("UICorner", Knob); kc.CornerRadius = UDim.new(1,0)
 
     for i=1,5 do
-        local n = Instance.new("TextLabel", SettingsPanel)
+        local n = Instance.new("TextLabel", SettingsBody)
         n.Size = UDim2.new(0,24,0,20); n.AnchorPoint = Vector2.new(0.5,0); n.Position = UDim2.new((i-1)/4,0,0,228)
-        n.BackgroundTransparency = 1; n.Text = tostring(i); n.TextColor3 = GRAY; n.TextSize = 11; n.Font = Enum.Font.GothamMedium
+        n.ZIndex = 5; n.BackgroundTransparency = 1; n.Text = tostring(i); n.TextColor3 = GRAY; n.TextSize = 11; n.Font = Enum.Font.GothamMedium
     end
 
     -- Smart Redeemer sits directly below the Submit After slider.
@@ -865,17 +926,19 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragging=false end end)
 
     -- Detection status
-    local DetectStatus = Instance.new("TextLabel", SettingsPanel)
-    DetectStatus.Size = UDim2.new(1,-28,0,50); DetectStatus.Position = UDim2.new(0,14,0,318); DetectStatus.BackgroundColor3 = BG2; DetectStatus.BackgroundTransparency = 0.15; DetectStatus.BorderSizePixel = 0
+    local DetectStatus = Instance.new("TextLabel", SettingsBody)
+    DetectStatus.ZIndex = 5
+    DetectStatus.Size = UDim2.new(1,-28,0,48); DetectStatus.Position = UDim2.new(0,14,0,302); DetectStatus.BackgroundColor3 = BG2; DetectStatus.BackgroundTransparency = 0.15; DetectStatus.BorderSizePixel = 0
     DetectStatus.TextColor3 = YELLOW; DetectStatus.TextSize = 11; DetectStatus.Font = Enum.Font.Code; DetectStatus.TextXAlignment = Enum.TextXAlignment.Left; DetectStatus.TextYAlignment = Enum.TextYAlignment.Top; DetectStatus.TextWrapped = true; DetectStatus.ClipsDescendants = true
     local dc = Instance.new("UICorner", DetectStatus); dc.CornerRadius = UDim.new(0,9)
     local dp = Instance.new("UIPadding", DetectStatus); dp.PaddingLeft = UDim.new(0,8); dp.PaddingTop = UDim.new(0,7)
 
     -- Reset all captured code data
-    local ResetButton = Instance.new("TextButton", SettingsPanel)
+    local ResetButton = Instance.new("TextButton", SettingsBody)
+    ResetButton.ZIndex = 5
     ResetButton.Name = "ResetData"
-    ResetButton.Size = UDim2.new(1,-28,0,32)
-    ResetButton.Position = UDim2.new(0,14,0,284)
+    ResetButton.Size = UDim2.new(1,-28,0,34)
+    ResetButton.Position = UDim2.new(0,14,1,-48)
     ResetButton.BackgroundColor3 = ORANGE
     ResetButton.BorderSizePixel = 0
     ResetButton.Text = "RESET LOGS"
