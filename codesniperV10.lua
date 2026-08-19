@@ -593,7 +593,7 @@ local SmartAttemptId = 0
     end
 
     local CapturedPanel, CapturedBody = MakePanel("Logs", UDim2.new(1,-486,0.5,-190), 380)
-    local SettingsPanel, SettingsBody = MakePanel("Config", UDim2.new(1,-243,0.5,-200), 400)
+    local SettingsPanel, SettingsBody = MakePanel("Config", UDim2.new(1,-243,0.5,-210), 420)
 
     local function AddAtmosphere(panel)
         local fx=Instance.new("Frame",panel)
@@ -640,7 +640,7 @@ local SmartAttemptId = 0
         holder.BackgroundTransparency=1
         holder.Visible=false
         holder.ClipsDescendants=true
-        holder.ZIndex=1 -- behind every Config button/text/logical control
+        holder.ZIndex=1 -- behind every Config control
 
         local segments = {}
 
@@ -700,6 +700,12 @@ local SmartAttemptId = 0
         end
 
         RandomizeConfigLightning()
+
+        if SettingsPanel:GetAttribute("Collapsed") == true then
+            ConfigLightning.Visible = false
+            return
+        end
+
         ConfigLightning.Visible = true
 
         -- Soft flash behind all Config controls only.
@@ -715,6 +721,13 @@ local SmartAttemptId = 0
         fc.CornerRadius=UDim.new(0,16)
 
         task.wait(0.08)
+
+        if SettingsPanel:GetAttribute("Collapsed") == true then
+            ConfigLightning.Visible = false
+            if flash and flash.Parent then flash:Destroy() end
+            return
+        end
+
         ConfigLightning.Visible=false
         Tween(flash,0.10,{BackgroundTransparency=1},Enum.EasingStyle.Quad)
         task.wait(0.10)
@@ -737,11 +750,11 @@ local SmartAttemptId = 0
 
 
     local Status = Instance.new("TextLabel", CapturedBody)
-    Status.Size = UDim2.new(1,-24,0,22); Status.Position = UDim2.new(0,12,0,51); Status.BackgroundTransparency = 1
-    Status.Text = "Code is ready to go"; Status.TextColor3 = GRAY; Status.TextSize = 12; Status.Font = Enum.Font.Gotham; Status.TextXAlignment = Enum.TextXAlignment.Left; Status.ZIndex = 4
+    Status.Size = UDim2.new(1,-24,0,22); Status.Position = UDim2.new(0,12,0,8); Status.BackgroundTransparency = 1
+    Status.Text = "Logs ready"; Status.TextColor3 = GRAY; Status.TextSize = 12; Status.Font = Enum.Font.Gotham; Status.TextXAlignment = Enum.TextXAlignment.Left; Status.ZIndex = 4
 
     local Scroll = Instance.new("ScrollingFrame", CapturedBody)
-    Scroll.Position = UDim2.new(0,10,0,77); Scroll.Size = UDim2.new(1,-20,1,-87)
+    Scroll.Position = UDim2.new(0,10,0,36); Scroll.Size = UDim2.new(1,-20,1,-46)
     Scroll.ZIndex = 4; Scroll.BackgroundColor3 = BG2; Scroll.BackgroundTransparency = 0.2; Scroll.BorderSizePixel = 0; Scroll.ScrollBarThickness = 3
     Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y; Scroll.CanvasSize = UDim2.new()
     local sc = Instance.new("UICorner", Scroll); sc.CornerRadius = UDim.new(0,10)
@@ -776,14 +789,9 @@ local SmartAttemptId = 0
         return b, l
     end
 
-    local CopierToggle, CopierLabel = MakeSwitch("Copier", 53)
-    CopierLabel.Visible = false
-    CopierToggle.Size = UDim2.new(0,94,0,32)
-    CopierToggle.Position = UDim2.new(0,14,0,53)
-    CopierToggle.Text = CopierEnabled and "COPIER ON" or "COPIER OFF"
-
-    local PrepareToggle = MakeSwitch("Prepare", 92)
-    local AfterSubmitToggle, AfterSubmitLabel = MakeSwitch("After Submit", 133)
+    local CopierToggle, CopierLabel = MakeSwitch("Copier", 12)
+    local PrepareToggle = MakeSwitch("Prepare", 52)
+    local AfterSubmitToggle, AfterSubmitLabel = MakeSwitch("After Submit", 92)
 local SmartRedeemerToggle, SmartRedeemerLabel
 
     local function PaintToggle(button, enabled)
@@ -799,8 +807,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     CopierToggle.MouseButton1Click:Connect(function()
         CopierEnabled = not CopierEnabled
-        CopierToggle.Text = CopierEnabled and "COPIER ON" or "COPIER OFF"
-        CopierToggle.BackgroundColor3 = CopierEnabled and GREEN or RED
+        PaintToggle(CopierToggle, CopierEnabled)
         SavePreferences()
         LogState("Copier", CopierEnabled)
 
@@ -850,18 +857,18 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     -- Slider 1-5
     local SliderTitle = Instance.new("TextLabel", SettingsBody)
     SliderTitle.ZIndex = 5
-    SliderTitle.Size = UDim2.new(1,-28,0,24); SliderTitle.Position = UDim2.new(0,14,0,174); SliderTitle.BackgroundTransparency = 1
+    SliderTitle.Size = UDim2.new(1,-28,0,24); SliderTitle.Position = UDim2.new(0,14,0,132); SliderTitle.BackgroundTransparency = 1
     SliderTitle.Text = "Submit after messages"; SliderTitle.TextColor3 = WHITE; SliderTitle.TextSize = 13; SliderTitle.Font = Enum.Font.GothamBold; SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
 
     local Number = Instance.new("TextLabel", SettingsBody)
     Number.ZIndex = 5
-    Number.Size = UDim2.new(0,40,0,28); Number.Position = UDim2.new(1,-54,0,171); Number.BackgroundColor3 = BG3; Number.BorderSizePixel = 0
+    Number.Size = UDim2.new(0,40,0,28); Number.Position = UDim2.new(1,-54,0,129); Number.BackgroundColor3 = BG3; Number.BorderSizePixel = 0
     Number.Text = tostring(SubmitAfter); Number.TextColor3 = WHITE; Number.TextSize = 14; Number.Font = Enum.Font.GothamBold
     local nc = Instance.new("UICorner", Number); nc.CornerRadius = UDim.new(0,8)
 
     local Slider = Instance.new("Frame", SettingsBody)
     Slider.ZIndex = 5
-    Slider.Size = UDim2.new(1,-36,0,8); Slider.Position = UDim2.new(0,18,0,216); Slider.BackgroundColor3 = BG3; Slider.BorderSizePixel = 0
+    Slider.Size = UDim2.new(1,-36,0,8); Slider.Position = UDim2.new(0,18,0,169); Slider.BackgroundColor3 = BG3; Slider.BorderSizePixel = 0
     local slc = Instance.new("UICorner", Slider); slc.CornerRadius = UDim.new(1,0)
     local Fill = Instance.new("Frame", Slider)
     Fill.Size = UDim2.new((SubmitAfter-1)/4,0,1,0); Fill.BackgroundColor3 = PURPLE; Fill.BorderSizePixel = 0
@@ -874,12 +881,12 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     for i=1,5 do
         local n = Instance.new("TextLabel", SettingsBody)
-        n.Size = UDim2.new(0,24,0,20); n.AnchorPoint = Vector2.new(0.5,0); n.Position = UDim2.new((i-1)/4,0,0,228)
+        n.Size = UDim2.new(0,24,0,20); n.AnchorPoint = Vector2.new(0.5,0); n.Position = UDim2.new((i-1)/4,0,0,180)
         n.ZIndex = 5; n.BackgroundTransparency = 1; n.Text = tostring(i); n.TextColor3 = GRAY; n.TextSize = 11; n.Font = Enum.Font.GothamMedium
     end
 
     -- Smart Redeemer sits directly below the Submit After slider.
-    SmartRedeemerToggle, SmartRedeemerLabel = MakeSwitch("Smart Redeemer", 256)
+    SmartRedeemerToggle, SmartRedeemerLabel = MakeSwitch("Smart Redeemer", 207)
 
     PaintToggle(SmartRedeemerToggle, SmartRedeemerEnabled)
 
@@ -930,8 +937,9 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     -- Detection status
     local DetectStatus = Instance.new("TextLabel", SettingsBody)
     DetectStatus.ZIndex = 5
-    DetectStatus.Size = UDim2.new(1,-28,0,48); DetectStatus.AnchorPoint = Vector2.new(0,1)
-    DetectStatus.Position = UDim2.new(0,14,1,-54); DetectStatus.BackgroundColor3 = BG2; DetectStatus.BackgroundTransparency = 0.15; DetectStatus.BorderSizePixel = 0
+    DetectStatus.AnchorPoint = Vector2.new(0,0)
+    DetectStatus.Size = UDim2.new(1,-28,0,44)
+    DetectStatus.Position = UDim2.new(0,14,0,249); DetectStatus.BackgroundColor3 = BG2; DetectStatus.BackgroundTransparency = 0.15; DetectStatus.BorderSizePixel = 0
     DetectStatus.TextColor3 = YELLOW; DetectStatus.TextSize = 11; DetectStatus.Font = Enum.Font.Code; DetectStatus.TextXAlignment = Enum.TextXAlignment.Left; DetectStatus.TextYAlignment = Enum.TextYAlignment.Top; DetectStatus.TextWrapped = true; DetectStatus.ClipsDescendants = true
     local dc = Instance.new("UICorner", DetectStatus); dc.CornerRadius = UDim.new(0,9)
     local dp = Instance.new("UIPadding", DetectStatus); dp.PaddingLeft = UDim.new(0,8); dp.PaddingTop = UDim.new(0,7)
@@ -941,8 +949,8 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     ResetButton.ZIndex = 5
     ResetButton.Name = "ResetData"
     ResetButton.Size = UDim2.new(1,-28,0,34)
-    ResetButton.AnchorPoint = Vector2.new(0,1)
-    ResetButton.Position = UDim2.new(0,14,1,-10)
+    ResetButton.AnchorPoint = Vector2.new(0,0)
+    ResetButton.Position = UDim2.new(0,14,0,301)
     ResetButton.BackgroundColor3 = ORANGE
     ResetButton.BorderSizePixel = 0
     ResetButton.Text = "RESET LOGS"
@@ -982,74 +990,50 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         AddLog("Logs reset")
     end)
 
-    -- Brainrot logo at the bottom of Config, half inside / half outside.
-    -- Upload the transparent logo PNG to:
-    -- https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/brainrot_logo.png
-    local BRAINROT_IMAGE_URL = "https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/brainrot_logo.png"
+    -- EXACT Steal a Brainrot logo image supplied by the user.
+    -- Put steal_a_brainrot.png beside this script OR upload it to this repo:
+    -- https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/steal_a_brainrot.png
+    local BRAINROT_IMAGE_URL = "https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/steal_a_brainrot.png"
+    local BRAINROT_LOCAL_FILE = "steal_a_brainrot.png"
     local BRAINROT_IMAGE = ""
 
     pcall(function()
-        if writefile and getcustomasset then
-            local raw = game:HttpGet(BRAINROT_IMAGE_URL)
-            if raw and #raw > 100 then
-                writefile("codesniper_brainrot_logo.png", raw)
-                BRAINROT_IMAGE = getcustomasset("codesniper_brainrot_logo.png")
+        if getcustomasset then
+            if isfile and isfile(BRAINROT_LOCAL_FILE) then
+                BRAINROT_IMAGE = getcustomasset(BRAINROT_LOCAL_FILE)
+            elseif writefile then
+                local raw = game:HttpGet(BRAINROT_IMAGE_URL)
+                if raw and #raw > 100 then
+                    writefile(BRAINROT_LOCAL_FILE, raw)
+                    BRAINROT_IMAGE = getcustomasset(BRAINROT_LOCAL_FILE)
+                end
             end
         end
     end)
 
     local BrainrotLogo = Instance.new("ImageLabel", Gui)
     BrainrotLogo.Name = "BrainrotLogo"
-    BrainrotLogo.Size = UDim2.new(0,190,0,82)
+    BrainrotLogo.Size = UDim2.new(0,178,0,100)
     BrainrotLogo.AnchorPoint = Vector2.new(0.5,0.5)
     BrainrotLogo.BackgroundTransparency = 1
     BrainrotLogo.Image = BRAINROT_IMAGE
     BrainrotLogo.ScaleType = Enum.ScaleType.Fit
     BrainrotLogo.ZIndex = 40
 
-    -- Fallback so something ALWAYS shows even if custom assets are unsupported.
-    local BrainrotFallback = Instance.new("TextLabel", Gui)
-    BrainrotFallback.Name = "BrainrotFallback"
-    BrainrotFallback.Size = UDim2.new(0,205,0,56)
-    BrainrotFallback.AnchorPoint = Vector2.new(0.5,0.5)
-    BrainrotFallback.BackgroundTransparency = 1
-    BrainrotFallback.Text = "STEAL A BRAINROT"
-    BrainrotFallback.TextColor3 = Color3.fromRGB(255,210,25)
-    BrainrotFallback.TextSize = 19
-    BrainrotFallback.Font = Enum.Font.GothamBlack
-    BrainrotFallback.TextWrapped = true
-    BrainrotFallback.ZIndex = 39
-
-    local fallbackStroke = Instance.new("UIStroke", BrainrotFallback)
-    fallbackStroke.Color = Color3.fromRGB(255,105,0)
-    fallbackStroke.Thickness = 1.7
-    fallbackStroke.Transparency = 0.12
-
-    local fallbackGrad = Instance.new("UIGradient", BrainrotFallback)
-    fallbackGrad.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255,230,35)),
-        ColorSequenceKeypoint.new(0.40, Color3.fromRGB(255,145,10)),
-        ColorSequenceKeypoint.new(0.70, Color3.fromRGB(60,220,255)),
-        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(0,105,255))
-    })
-
     local logoPulse = 0
     RunService.RenderStepped:Connect(function(dt)
         if not SettingsPanel.Parent then return end
 
         local collapsed = SettingsPanel:GetAttribute("Collapsed") == true
-        if collapsed or SettingsPanel.Size.Y.Offset <= 60 then
+        local usable = BRAINROT_IMAGE ~= ""
+
+        if collapsed or SettingsPanel.Size.Y.Offset <= 60 or not usable then
             BrainrotLogo.Visible = false
-            BrainrotFallback.Visible = false
             return
         end
 
-        local hasImage = BRAINROT_IMAGE ~= ""
-        BrainrotLogo.Visible = hasImage
-        BrainrotFallback.Visible = not hasImage
-
-        logoPulse += dt * 2.4
-        fallbackGrad.Rotation = (fallbackGrad.Rotation + dt * 30) % 360
+        BrainrotLogo.Visible = true
+        logoPulse += dt * 2.2
 
         local pulse = (math.sin(logoPulse) + 1) * 0.5
         local grow = math.floor(pulse * 8)
@@ -1058,17 +1042,15 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         local panelPos = SettingsPanel.Position
         local panelHeight = SettingsPanel.Size.Y.Offset
 
-        local commonXScale = panelPos.X.Scale
-        local commonXOffset = panelPos.X.Offset + 117
-        local commonYScale = panelPos.Y.Scale
-        -- Half inside / half outside the Config bottom edge.
-        local commonYOffset = panelPos.Y.Offset + panelHeight - 4 - rise
-
-        BrainrotLogo.Size = UDim2.new(0,190 + grow,0,82 + math.floor(grow * 0.45))
-        BrainrotLogo.Position = UDim2.new(commonXScale,commonXOffset,commonYScale,commonYOffset)
-
-        BrainrotFallback.Size = UDim2.new(0,205 + grow,0,56 + math.floor(grow * 0.3))
-        BrainrotFallback.Position = UDim2.new(commonXScale,commonXOffset,commonYScale,commonYOffset)
+        -- Center sits exactly on the Config bottom edge:
+        -- half the image is inside the menu and half is outside.
+        BrainrotLogo.Size = UDim2.new(0,178 + grow,0,100 + math.floor(grow * 0.56))
+        BrainrotLogo.Position = UDim2.new(
+            panelPos.X.Scale,
+            panelPos.X.Offset + 117,
+            panelPos.Y.Scale,
+            panelPos.Y.Offset + panelHeight - rise
+        )
     end)
 
     local function UpdateDetected()
@@ -1659,11 +1641,9 @@ local function HandlePopup(obj)
     PaintToggle(CopierToggle, CopierEnabled)
     if RiddleSolverEnabled then
         CopierEnabled = false
-        CopierToggle.Text = "COPIER OFF"
-        CopierToggle.BackgroundColor3 = RED
+        PaintToggle(CopierToggle, false)
     else
-        CopierToggle.Text = CopierEnabled and "COPIER ON" or "COPIER OFF"
-        CopierToggle.BackgroundColor3 = CopierEnabled and GREEN or RED
+        PaintToggle(CopierToggle, CopierEnabled)
     end
     PaintToggle(PrepareToggle, PrepareEnabled)
     PaintToggle(AfterSubmitToggle, AfterSubmitEnabled)
