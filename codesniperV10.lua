@@ -370,23 +370,45 @@ local SmartAttemptId = 0
 
     local function FindSubmit()
         FindCodeRedeemFrame()
-        if not CodesFrame then SubmitButton = nil return nil end
+        if not CodesFrame then
+            SubmitButton = nil
+            return nil
+        end
 
+        -- IMPORTANT: do NOT require Visible=true.
+        -- The Codes tab may be closed while CodeSniper is working.
         for _, obj in ipairs(CodesFrame:GetDescendants()) do
-            if obj:IsA("TextButton") and IsVisible(obj) then
-                local t = CleanText(obj.Text)
-                if t == "SUBMIT" or t == "REDEEM" or t:find("SUBMIT",1,true) or t:find("REDEEM",1,true) then
+            if obj:IsA("TextButton") or obj:IsA("ImageButton") then
+                local t = ""
+                pcall(function()
+                    t = CleanText(obj.Text)
+                end)
+
+                local n = string.upper(tostring(obj.Name or ""))
+
+                if t == "SUBMIT"
+                or t == "REDEEM"
+                or t:find("SUBMIT",1,true)
+                or t:find("REDEEM",1,true)
+                or n:find("SUBMIT",1,true)
+                or n:find("REDEEM",1,true) then
                     SubmitButton = obj
                     return obj
                 end
             end
         end
 
+        -- Some games use a TextLabel inside an ImageButton/TextButton.
         for _, obj in ipairs(CodesFrame:GetDescendants()) do
-            if obj:IsA("TextLabel") and IsVisible(obj) then
+            if obj:IsA("TextLabel") then
                 local t = CleanText(obj.Text)
-                if t == "SUBMIT" or t == "REDEEM" then
+
+                if t == "SUBMIT"
+                or t == "REDEEM"
+                or t:find("SUBMIT",1,true)
+                or t:find("REDEEM",1,true) then
                     local p = obj.Parent
+
                     while p and p ~= CodesFrame do
                         if p:IsA("TextButton") or p:IsA("ImageButton") then
                             SubmitButton = p
@@ -925,9 +947,21 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         local pct = math.clamp((x-Slider.AbsolutePosition.X)/Slider.AbsoluteSize.X,0,1)
         local value = math.clamp(math.floor(pct*4+1.5),1,5)
         SubmitAfter = value
+
+        -- Moving Submit After means the user wants normal auto-redeem.
+        -- Turn it back on automatically unless Smart Redeemer owns submission.
+        if not SmartRedeemerEnabled then
+            AfterSubmitEnabled = true
+            PaintToggle(AfterSubmitToggle, true)
+        end
+
         local snap = (value-1)/4
-        Fill.Size = UDim2.new(snap,0,1,0); Knob.Position = UDim2.new(snap,0,0.5,0); Number.Text = tostring(value)
+        Fill.Size = UDim2.new(snap,0,1,0)
+        Knob.Position = UDim2.new(snap,0,0.5,0)
+        Number.Text = tostring(value)
+
         SavePreferences()
+        AddLog("Submit After set to " .. tostring(value))
     end
     Slider.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragging=true; SetSlider(i.Position.X) end end)
     Knob.MouseButton1Down:Connect(function() dragging=true end)
@@ -1141,82 +1175,129 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     -- Type into real TextBox inside CodeRedeem
     local function TypeIntoCodeBox()
         local box = FindCodeBox()
-        if not box then Status.Text="No TextBox inside CodeRedeem"; Status.TextColor3=RED; return false end
+
+        if not box then
+            Status.Text = "No TextBox inside CodeRedeem"
+            Status.TextColor3 = RED
+            return false
+        end
 
         local finalText = table.concat(CurrentMessages, "")
+
         if finalText == "" then
             Status.Text = "No code data to redeem"
             Status.TextColor3 = RED
             return false
         end
 
-        -- Focus the REAL redeem TextBox first, then inject the captured code.
-        local pos,size = box.AbsolutePosition,box.AbsoluteSize
-        local x,y = math.floor(pos.X+size.X/2), math.floor(pos.Y+size.Y/2)
-
-        pcall(function()
-            VirtualInputManager:SendMouseButtonEvent(x,y,0,true,game,0)
-            
-            VirtualInputManager:SendMouseButtonEvent(x,y,0,false,game,0)
-        end)
-
-        pcall(function()
-            box:CaptureFocus()
-        end)
-        
-
-        -- Set the value while focused so the game's textbox listeners see the code.
-        pcall(function()
+        -- Directly write into the real CodeRedeem TextBox.
+        -- This does NOT require the Codes tab to be open or focused.
+        local wrote = pcall(function()
             box.Text = finalText
             box.CursorPosition = #finalText + 1
             box.SelectionStart = -1
         end)
 
-        -- Fire the Text property signal when supported by the executor.
+        if not wrote then
+            return false
+        end
+
+        -- Fire property listeners when the executor supports it.
         if firesignal then
             pcall(function()
                 firesignal(box:GetPropertyChangedSignal("Text"))
             end)
         end
 
-        
+        -- Some game UIs update internal state on FocusLost rather than Text changed.
+        -- Trigger those listeners without needing visible/focused UI.
+        if getconnections then
+            pcall(function()
+                for _, connection in ipairs(getconnections(box.FocusLost)) do
+                    connection:Fire(false)
+                end
+            end)
+        end
 
-        -- Keep focus until ClickSubmit runs. Releasing focus before redeeming can
-        -- cause some UIs to clear/ignore their internal code value.
-        print("TYPED CODE DATA:", finalText)
-        -- The game may update its TextBox state a frame later.
-        -- We already forced the text into the real box, so don't block instant redeem
-        -- on an immediate equality check.
+        -- Write once more after callbacks in case the UI rewrote the field.
         pcall(function()
             box.Text = finalText
             box.CursorPosition = #finalText + 1
         end)
+
+        print("TYPED CODE DATA:", finalText)
         return true
     end
 
     local function ClickSubmit()
         local button = FindSubmit()
-        if not button then Status.Text="Submit not found"; Status.TextColor3=RED; return false end
-        local pos,size = button.AbsolutePosition,button.AbsoluteSize
-        local x,y = math.floor(pos.X+size.X/2), math.floor(pos.Y+size.Y/2)
-        pcall(function()
-            VirtualInputManager:SendMouseMoveEvent(x,y,game)
-            VirtualInputManager:SendMouseButtonEvent(x,y,0,true,game,0)
-            
-            VirtualInputManager:SendMouseButtonEvent(x,y,0,false,game,0)
-        end)
-        pcall(function() button:Activate() end)
+
+        if not button then
+            Status.Text = "Submit not found"
+            Status.TextColor3 = RED
+            return false
+        end
+
+        local fired = false
+
+        -- Programmatic activation works even while the Codes tab is hidden.
         if firesignal then
-            pcall(function() firesignal(button.Activated) end)
-            if button:IsA("TextButton") then pcall(function() firesignal(button.MouseButton1Click) end) end
+            pcall(function()
+                firesignal(button.Activated)
+                fired = true
+            end)
+
+            if button:IsA("TextButton") then
+                pcall(function()
+                    firesignal(button.MouseButton1Click)
+                    fired = true
+                end)
+            end
         end
+
         if getconnections then
-            pcall(function() for _,c in ipairs(getconnections(button.Activated)) do c:Fire() end end)
+            pcall(function()
+                for _, connection in ipairs(getconnections(button.Activated)) do
+                    connection:Fire()
+                    fired = true
+                end
+            end)
+
+            if button:IsA("TextButton") then
+                pcall(function()
+                    for _, connection in ipairs(getconnections(button.MouseButton1Click)) do
+                        connection:Fire()
+                        fired = true
+                    end
+                end)
+            end
         end
-        return true
+
+        -- Roblox Activate() fallback.
+        pcall(function()
+            button:Activate()
+            fired = true
+        end)
+
+        -- Only use a physical click if the button is actually visible.
+        if IsVisible(button) then
+            pcall(function()
+                local pos, size = button.AbsolutePosition, button.AbsoluteSize
+                local x = math.floor(pos.X + size.X/2)
+                local y = math.floor(pos.Y + size.Y/2)
+
+                VirtualInputManager:SendMouseMoveEvent(x,y,game)
+                VirtualInputManager:SendMouseButtonEvent(x,y,0,true,game,0)
+                VirtualInputManager:SendMouseButtonEvent(x,y,0,false,game,0)
+                fired = true
+            end)
+        end
+
+        return fired
     end
 
     local function SpamSubmit()
+        -- Fire immediately; tiny task yields only let Roblox process callbacks.
         for _=1,10 do
             ClickSubmit()
             task.wait()
@@ -1539,35 +1620,39 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         return
     end
 
-    if #CurrentMessages >= SubmitAfter then
-        CurrentMessages = {}
-    end
-
-    table.insert(CurrentMessages,text)
+    -- NORMAL REDEEMER
+    table.insert(CurrentMessages, text)
     AddLog("Captured: " .. text)
-    Status.Text = "Captured " .. #CurrentMessages .. "/" .. SubmitAfter .. " message(s)"
+
+    local count = #CurrentMessages
+    Status.Text = "Captured " .. count .. "/" .. SubmitAfter .. " message(s)"
     Status.TextColor3 = GREEN
+
+    -- Keep the textbox synchronized even before we hit the submit count.
     TypeIntoCodeBox()
 
-    if AfterSubmitEnabled and #CurrentMessages == SubmitAfter then
+    if AfterSubmitEnabled and count >= SubmitAfter then
         Submitting = true
-        Status.Text = "SUBMITTING x10..."
+        Status.Text = "AUTO REDEEMING..."
         Status.TextColor3 = GREEN
+        AddLog("Auto redeem at " .. tostring(count) .. " message(s)")
 
+        -- Re-write the full final code immediately before redeeming.
         local typed = TypeIntoCodeBox()
-        local liveBox = FindCodeBox()
 
-        if typed and liveBox and CleanText(liveBox.Text) ~= "" then
+        if typed then
             SpamSubmit()
+            AddLog("Redeem fired")
         else
-            Status.Text = "Code was not inside redeem box"
+            Status.Text = "Could not write redeem code"
             Status.TextColor3 = RED
+            AddLog("Redeem failed: textbox unavailable")
         end
 
         CurrentMessages = {}
         WaitingForCode = false
 
-        task.delay(0.1,function()
+        task.defer(function()
             Submitting = false
             Status.Text = PrepareEnabled and "Waiting for code..." or "Ready to capture..."
             Status.TextColor3 = GRAY
