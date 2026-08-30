@@ -1193,10 +1193,12 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         local requester = GetRequestFunction()
         if not requester then return nil end
 
+        local imageSearchQuery = tostring(spawnName) .. " Steal a brainrot"
+
         local ok, response = pcall(function()
             return requester({
                 Url = "https://catalog.roblox.com/v1/search/items/details?Category=1&Limit=10&Keyword="
-                    .. HttpService:UrlEncode(spawnName),
+                    .. HttpService:UrlEncode(imageSearchQuery),
                 Method = "GET",
                 Headers = {["Accept"] = "application/json"}
             })
@@ -1385,8 +1387,20 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         name = tostring(name)
             :gsub("^%s+","")
             :gsub("%s+$","")
-            :gsub("^['\\"]","")
-            :gsub("['\\"]$","")
+            :gsub("^%c","")
+            :gsub("%c$","")
+
+        -- Strip wrapping single/double quotes without fragile Lua patterns.
+        local firstChar = string.sub(name, 1, 1)
+        if firstChar == "\"" or firstChar == "'" then
+            name = string.sub(name, 2)
+        end
+
+        local lastChar = string.sub(name, -1)
+        if lastChar == "\"" or lastChar == "'" then
+            name = string.sub(name, 1, -2)
+        end
+
 
         return name ~= "" and name or nil
     end
