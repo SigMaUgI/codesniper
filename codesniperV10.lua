@@ -837,6 +837,8 @@ local SmartAttemptId = 0
         -- Keep the Logs panel useful instead of filling it with internal noise.
         local lower = string.lower(text)
         if lower:find("discord image added", 1, true)
+        or lower:find("brainrot image added", 1, true)
+        or lower:find("fallback image added", 1, true)
         or lower:find("webhook queue", 1, true)
         or lower:find("smart write retry", 1, true) then
             return
@@ -1507,8 +1509,6 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         local suffix = count > 1 and (" X" .. tostring(count)) or ""
 
         local embed = {
-            -- No embed title. The brainrot name itself is the large Discord heading.
-            description = "# " .. tostring(spawnName) .. suffix,
             color = 16753920,
             fields = {
                 {
@@ -1539,12 +1539,16 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         local payload = {
             username = WEBHOOK_USERNAME,
             avatar_url = CODE_SNIPER_AVATAR,
-            content = "@everyone",
+
+            -- Exact top message format:
+            -- @everyone
+            -- # Brainrot Name
+            content = "@everyone\n# " .. tostring(spawnName) .. suffix,
+
             allowed_mentions = {parse = {"everyone"}},
             embeds = {embed}
         }
 
-        -- Keep an existing Discord attachment when editing a stacked message.
         if attachmentId then
             payload.attachments = {
                 {
@@ -1714,8 +1718,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
                 message_id = nil,
                 redeemed_at = os.time(),
                 attachment_id = nil,
-                attachment_filename = nil,
-                used_fallback = false
+                attachment_filename = nil
             }
             SpawnWebhookMessages[key] = state
         end
@@ -1723,9 +1726,13 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         state.count += 1
         state.redeemed_at = os.time()
 
-        -- Existing stacked message: retain the already-uploaded image attachment.
+        -- STACKED REDEEM: update existing message immediately.
         if state.message_id then
-            local imageRef = state.attachment_filename and ("attachment://" .. state.attachment_filename) or nil
+            local imageRef = nil
+            if state.attachment_filename then
+                imageRef = "attachment://" .. state.attachment_filename
+            end
+
             local payload = MakeWebhookPayload(
                 spawnName,
                 playerName,
@@ -1747,42 +1754,29 @@ local SmartRedeemerToggle, SmartRedeemerLabel
                 return
             end
 
+            -- Old Discord message could not be edited. Make a fresh one.
             state.message_id = nil
             state.attachment_id = nil
             state.attachment_filename = nil
         end
 
-        -- First notification (or PATCH recovery):
-        -- download a good Google result and upload the actual bytes to Discord.
-        -- If anything fails, use the user's exact IMAGE NOT FOUND fallback.
-        local imageBytes, ext, mime, usedFallback = GetBestSpawnImageBytes(spawnName)
-        local filename = "brainrot." .. tostring(ext or "png")
-        local imageRef = "attachment://" .. filename
-
-        local payload = MakeWebhookPayload(
+        -- SEND THE DISCORD MESSAGE FIRST.
+        -- Image searching/downloading is NEVER allowed to block the notification.
+        local initialPayload = MakeWebhookPayload(
             spawnName,
             playerName,
             state.count,
-            imageRef,
+            nil,
             state.redeemed_at,
             nil
         )
 
-        -- Discord needs the attachment metadata in payload_json for multipart uploads.
-        payload.attachments = {
-            {
-                id = 0,
-                filename = filename
-            }
-        }
-
-        local ok, response, err = PostWebhookWithImage(
-            requester,
-            payload,
-            imageBytes,
-            filename,
-            mime
-        )
+        local ok, response, err = DoWebhookRequest(requester, {
+            Url = DISCORD_WEBHOOK .. "?wait=true",
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode(initialPayload)
+        })
 
         if not ok then
             AddLog("Discord failed: " .. tostring(err))
@@ -1790,33 +1784,100 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             return
         end
 
-        local body = response and (response.Body or response.body) or ""
-        if type(body) == "string" and body ~= "" then
+        local responseBody = response and (response.Body or response.body) or ""
+        if type(responseBody) == "string" and responseBody ~= "" then
             pcall(function()
-                local decoded = HttpService:JSONDecode(body)
-
+                local decoded = HttpService:JSONDecode(responseBody)
                 if decoded and decoded.id then
                     state.message_id = tostring(decoded.id)
-                end
-
-                if decoded and type(decoded.attachments) == "table" and decoded.attachments[1] then
-                    local attachment = decoded.attachments[1]
-                    state.attachment_id = tostring(attachment.id or "0")
-                    state.attachment_filename = tostring(attachment.filename or filename)
-                else
-                    state.attachment_id = "0"
-                    state.attachment_filename = filename
                 end
             end)
         end
 
-        state.used_fallback = usedFallback == true
+        AddLog("Sent: " .. spawnName)
 
-        if usedFallback then
-            AddLog("Sent: " .. spawnName .. " • fallback image")
-        else
-            AddLog("Sent: " .. spawnName .. " • image attached")
+        -- If the executor didn't return the Discord message id, the notification
+        -- is still sent; we just can't edit that specific message afterward.
+        if not state.message_id then
+            return
         end
+
+        -- IMAGE WORK RUNS AFTER THE MESSAGE EXISTS.
+        task.spawn(function()
+            -- This always returns bytes:
+            -- good searched brainrot image OR exact IMAGE NOT FOUND fallback.
+            local imageBytes, ext, mime, usedFallback = GetBestSpawnImageBytes(spawnName)
+
+            if not imageBytes or imageBytes == "" then
+                -- Last-resort safety: exact embedded fallback.
+                imageBytes = IMAGE_NOT_FOUND_BYTES
+                ext = "png"
+                mime = "image/png"
+                usedFallback = true
+            end
+
+            local filename = "brainrot." .. tostring(ext or "png")
+            local imageRef = "attachment://" .. filename
+
+            local imagePayload = MakeWebhookPayload(
+                spawnName,
+                playerName,
+                state.count,
+                imageRef,
+                state.redeemed_at,
+                nil
+            )
+
+            imagePayload.attachments = {
+                {
+                    id = 0,
+                    filename = filename
+                }
+            }
+
+            local multipartBody, contentType = BuildMultipartBody(
+                imagePayload,
+                imageBytes,
+                filename,
+                mime or "image/png"
+            )
+
+            local patchOk, patchResponse, patchErr = DoWebhookRequest(requester, {
+                Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(state.message_id),
+                Method = "PATCH",
+                Headers = {
+                    ["Content-Type"] = contentType
+                },
+                Body = multipartBody
+            })
+
+            if not patchOk then
+                -- Message stays sent even if this executor can't multipart PATCH.
+                AddLog("Image attach failed")
+                return
+            end
+
+            local body = patchResponse and (patchResponse.Body or patchResponse.body) or ""
+            if type(body) == "string" and body ~= "" then
+                pcall(function()
+                    local decoded = HttpService:JSONDecode(body)
+                    if decoded and type(decoded.attachments) == "table" and decoded.attachments[1] then
+                        local attachment = decoded.attachments[1]
+                        state.attachment_id = tostring(attachment.id or "0")
+                        state.attachment_filename = tostring(attachment.filename or filename)
+                    else
+                        state.attachment_id = "0"
+                        state.attachment_filename = filename
+                    end
+                end)
+            end
+
+            if usedFallback then
+                AddLog("Fallback image added")
+            else
+                AddLog("Brainrot image added")
+            end
+        end)
     end
 
     local function RunWebhookQueue()
@@ -2642,7 +2703,7 @@ local function HandlePopup(obj)
         Loading.Visible = false
     end)
 
-    print("CodeSniper V44 loaded - Discord image attachments + fallback")
+    print("CodeSniper V45 loaded - instant Discord send + guaranteed fallback")
 
 end
 
