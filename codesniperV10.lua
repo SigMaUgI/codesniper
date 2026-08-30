@@ -1429,140 +1429,232 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         return nil
     end
 
+    local DownloadImageBytes
+
     local function GetSpawnImageUrl(spawnName)
         local requester = GetRequestFunction()
         if not requester or not spawnName or spawnName == "" then
             return nil
         end
 
-        local query = "\"" .. tostring(spawnName) .. "\" \"Steal a Brainrot\""
+        local function CleanUrl(url)
+            if type(url) ~= "string" then return nil end
+
+            url = url
+                :gsub("\\u003d", "=")
+                :gsub("\\u0026", "&")
+                :gsub("\\u002f", "/")
+                :gsub("\\/", "/")
+                :gsub("&amp;", "&")
+                :gsub("%%3A", ":")
+                :gsub("%%2F", "/")
+                :gsub("%%3F", "?")
+                :gsub("%%3D", "=")
+                :gsub("%%26", "&")
+
+            if not url:match("^https?://") then
+                return nil
+            end
+
+            return url
+        end
+
+        local function RequestText(url, referer)
+            local ok, response = pcall(function()
+                return requester({
+                    Url = url,
+                    Method = "GET",
+                    Headers = {
+                        ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128 Safari/537.36",
+                        ["Accept"] = "text/html,application/xhtml+xml,application/json,*/*",
+                        ["Referer"] = referer or "https://www.google.com/"
+                    }
+                })
+            end)
+
+            if not ok or not response then
+                return nil
+            end
+
+            local status = tonumber(response.StatusCode or response.Status or response.status_code or 0)
+            if status ~= 0 and (status < 200 or status >= 300) then
+                return nil
+            end
+
+            local body = response.Body or response.body
+            if type(body) ~= "string" or body == "" then
+                return nil
+            end
+
+            return body
+        end
+
+        ----------------------------------------------------------------
+        -- 1) GOOGLE IMAGES
+        -- Take the FIRST usable image result instead of scoring/rejecting.
+        ----------------------------------------------------------------
+        local query = tostring(spawnName) .. " Steal a Brainrot"
         local googleUrl = "https://www.google.com/search?tbm=isch&safe=active&q="
             .. HttpService:UrlEncode(query)
 
-        local ok, response = pcall(function()
-            return requester({
-                Url = googleUrl,
-                Method = "GET",
-                Headers = {
-                    ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128 Safari/537.36",
-                    ["Accept"] = "text/html,application/xhtml+xml"
-                }
-            })
-        end)
-
-        if not ok or not response then
-            return nil
-        end
-
-        local status = tonumber(response.StatusCode or response.Status or 0)
-        if status ~= 0 and (status < 200 or status >= 300) then
-            return nil
-        end
-
-        local html = response.Body or response.body
-        if type(html) ~= "string" or html == "" then
-            return nil
-        end
-
-        html = html
-            :gsub("\\u003d", "=")
-            :gsub("\\u0026", "&")
-            :gsub("\\u002f", "/")
-            :gsub("\\/", "/")
-            :gsub("&amp;", "&")
-
-        local wanted = string.lower(tostring(spawnName))
-        local bestUrl = nil
-        local bestScore = -math.huge
-        local seen = {}
-
-        local function ScoreCandidate(url, context)
-            if seen[url] then return end
-            seen[url] = true
-
-            local lowerUrl = string.lower(url)
-            local lowerContext = string.lower(context or "")
-
-            -- Skip obvious non-result assets, but ALLOW encrypted-tbn gstatic:
-            -- that is Google's actual image thumbnail host.
-            if lowerUrl:find("google.com/logos", 1, true)
-            or lowerUrl:find("/favicon", 1, true)
-            or lowerUrl:find("sprite", 1, true)
-            or lowerUrl:find("/profile", 1, true)
-            or lowerUrl:find("/avatar", 1, true) then
-                return
-            end
-
-            local isGoogleThumb =
-                lowerUrl:find("encrypted%-tbn", 1, false)
-                and lowerUrl:find("gstatic.com", 1, true)
-
-            local looksLikeImage =
-                lowerUrl:find(".png", 1, true)
-                or lowerUrl:find(".jpg", 1, true)
-                or lowerUrl:find(".jpeg", 1, true)
-                or lowerUrl:find(".webp", 1, true)
-                or lowerUrl:find("image", 1, true)
-                or isGoogleThumb
-
-            if not looksLikeImage then
-                return
-            end
-
-            local score = 0
-
-            if lowerContext:find(wanted, 1, true) then score += 120 end
-            if lowerContext:find("steal a brainrot", 1, true) then score += 100 end
-            if lowerContext:find("brainrot", 1, true) then score += 35 end
-            if lowerContext:find("wiki", 1, true) then score += 20 end
-            if lowerContext:find("fandom", 1, true) then score += 15 end
-            if lowerContext:find("roblox", 1, true) then score += 15 end
-
-            -- Google thumbnails are very reliable for Discord embeds.
-            if isGoogleThumb then score += 35 end
-
-            if lowerUrl:find("shutterstock", 1, true)
-            or lowerUrl:find("getty", 1, true)
-            or lowerUrl:find("stock", 1, true) then
-                score -= 70
-            end
-
-            if lowerUrl:find("pinterest", 1, true) then
-                score -= 20
-            end
-
-            if score > bestScore then
-                bestScore = score
-                bestUrl = url
-            end
-        end
-
-        -- Parse every URL and score it based on nearby Google result metadata.
-        for pos, rawUrl in html:gmatch("()https?://[^\"'%s<>]+") do
-            local url = rawUrl
+        local html = RequestText(googleUrl, "https://www.google.com/")
+        if html then
+            html = html
+                :gsub("\\u003d", "=")
                 :gsub("\\u0026", "&")
+                :gsub("\\u002f", "/")
                 :gsub("\\/", "/")
                 :gsub("&amp;", "&")
 
-            local left = math.max(1, pos - 900)
-            local right = math.min(#html, pos + #rawUrl + 900)
-            local context = html:sub(left, right)
+            local candidates = {}
+            local seen = {}
 
-            ScoreCandidate(url, context)
-        end
+            local function AddCandidate(raw)
+                local url = CleanUrl(raw)
+                if not url or seen[url] then return end
+                seen[url] = true
 
-        -- Google thumbnail fallback. These often have no file extension,
-        -- which was the reason V42 ended up with no picture.
-        if not bestUrl then
-            local thumb = html:match("(https://encrypted%-tbn[^\"'%s<>]+)")
-            if thumb then
-                bestUrl = thumb
-                bestScore = 70
+                local lower = string.lower(url)
+
+                -- Only reject obvious Google UI assets, avatars and icons.
+                if lower:find("google.com/logos", 1, true)
+                or lower:find("/favicon", 1, true)
+                or lower:find("gstatic.com/images/branding", 1, true)
+                or lower:find("googleusercontent.com/profile", 1, true)
+                or lower:find("/avatar", 1, true)
+                or lower:find("sprite", 1, true) then
+                    return
+                end
+
+                table.insert(candidates, url)
+            end
+
+            -- Actual/original image URLs Google commonly exposes.
+            for raw in html:gmatch('"ou"%s*:%s*"(https?://.-)"') do
+                AddCandidate(raw)
+            end
+
+            for raw in html:gmatch('"original"%s*:%s*"(https?://.-)"') do
+                AddCandidate(raw)
+            end
+
+            for raw in html:gmatch('"imageUrl"%s*:%s*"(https?://.-)"') do
+                AddCandidate(raw)
+            end
+
+            -- imgurl query parameters.
+            for raw in html:gmatch("[?&]imgurl=(https?%%3A%%2F%%2F[^&\"']+)") do
+                AddCandidate(raw)
+            end
+
+            -- Google result thumbnails. These are valid images even without extensions.
+            for raw in html:gmatch('(https://encrypted%-tbn[^"\'%s<>]+)') do
+                AddCandidate(raw)
+            end
+
+            -- Generic image-ish URLs as final Google parser fallback.
+            for raw in html:gmatch('(https?://[^"\'%s<>]+)') do
+                local lower = string.lower(raw)
+                if lower:find(".png", 1, true)
+                or lower:find(".jpg", 1, true)
+                or lower:find(".jpeg", 1, true)
+                or lower:find(".webp", 1, true)
+                or lower:find("encrypted%-tbn", 1, false) then
+                    AddCandidate(raw)
+                end
+            end
+
+            -- FIRST candidate that really downloads as image bytes wins.
+            for _, url in ipairs(candidates) do
+                local bytes = nil
+                local ok = pcall(function()
+                    bytes = select(1, DownloadImageBytes(url))
+                end)
+
+                if ok and bytes then
+                    return url
+                end
             end
         end
 
-        if bestUrl and bestScore >= 55 then
-            return bestUrl
+        ----------------------------------------------------------------
+        -- 2) WIKIMEDIA / WIKIPEDIA API
+        -- First page image returned for "<name> Steal a Brainrot", then
+        -- "<name>" alone if the full query has no page image.
+        ----------------------------------------------------------------
+        local function WikimediaFirst(searchText)
+            local api =
+                "https://en.wikipedia.org/w/api.php?action=query" ..
+                "&generator=search" ..
+                "&gsrnamespace=0" ..
+                "&gsrlimit=5" ..
+                "&gsrsearch=" .. HttpService:UrlEncode(searchText) ..
+                "&prop=pageimages" ..
+                "&piprop=thumbnail|original" ..
+                "&pithumbsize=1000" ..
+                "&format=json" ..
+                "&origin=*"
+
+            local body = RequestText(api, "https://en.wikipedia.org/")
+            if not body then
+                return nil
+            end
+
+            local ok, decoded = pcall(function()
+                return HttpService:JSONDecode(body)
+            end)
+
+            if not ok or type(decoded) ~= "table"
+            or type(decoded.query) ~= "table"
+            or type(decoded.query.pages) ~= "table" then
+                return nil
+            end
+
+            local pages = {}
+            for _, page in pairs(decoded.query.pages) do
+                table.insert(pages, page)
+            end
+
+            table.sort(pages, function(a, b)
+                return tonumber(a.index or 999999) < tonumber(b.index or 999999)
+            end)
+
+            for _, page in ipairs(pages) do
+                local url = nil
+
+                if type(page.original) == "table" then
+                    url = page.original.source
+                end
+
+                if not url and type(page.thumbnail) == "table" then
+                    url = page.thumbnail.source
+                end
+
+                url = CleanUrl(url)
+
+                if url then
+                    local bytes = nil
+                    local good = pcall(function()
+                        bytes = select(1, DownloadImageBytes(url))
+                    end)
+
+                    if good and bytes then
+                        return url
+                    end
+                end
+            end
+
+            return nil
+        end
+
+        local wiki = WikimediaFirst(tostring(spawnName) .. " Steal a Brainrot")
+        if wiki then
+            return wiki
+        end
+
+        wiki = WikimediaFirst(tostring(spawnName))
+        if wiki then
+            return wiki
         end
 
         return nil
@@ -1637,12 +1729,19 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     local function CachedSpawnImage(spawnName)
         local key = string.lower(tostring(spawnName))
-        if SpawnImageCache[key] ~= nil then
-            return SpawnImageCache[key] or nil
+
+        if type(SpawnImageCache[key]) == "string" and SpawnImageCache[key] ~= "" then
+            return SpawnImageCache[key]
         end
 
         local image = GetSpawnImageUrl(spawnName)
-        SpawnImageCache[key] = image or false
+
+        -- Cache successes only. A temporary Google/Wiki failure should not
+        -- permanently force IMAGE NOT FOUND for the rest of the session.
+        if image then
+            SpawnImageCache[key] = image
+        end
+
         return image
     end
 
@@ -1663,7 +1762,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         return true, response, nil
     end
 
-    local function DownloadImageBytes(url)
+    DownloadImageBytes = function(url)
         local requester = GetRequestFunction()
         if not requester or not url or url == "" then
             return nil
@@ -2804,7 +2903,7 @@ local function HandlePopup(obj)
         Loading.Visible = false
     end)
 
-    print("CodeSniper V48 loaded - Discord always sends before image work")
+    print("CodeSniper V49 loaded - first Google image, then Wikimedia")
 
 end
 
