@@ -375,9 +375,7 @@ local SmartAttemptId = 0
             return false
         end
 
-        -- NEVER capture text that exists in the 3D world.
-        -- BillboardGui = floating text over players/objects.
-        -- SurfaceGui   = text drawn on a world part.
+        -- Never capture 3D/world-space GUI text.
         if obj:FindFirstAncestorWhichIsA("BillboardGui") then
             return false
         end
@@ -386,35 +384,27 @@ local SmartAttemptId = 0
             return false
         end
 
-        -- Do not treat labels rendered inside a 3D ViewportFrame as HUD text.
         if obj:FindFirstAncestorWhichIsA("ViewportFrame") then
             return false
         end
 
-        -- Copier only watches actual 2D ScreenGui HUDs inside the local PlayerGui.
-        local screenGui = obj:FindFirstAncestorWhichIsA("ScreenGui")
-        if not screenGui then
+        -- Never capture CodeSniper's own UI.
+        if Gui and obj:IsDescendantOf(Gui) then
             return false
         end
 
-        if screenGui == Gui then
-            return false
-        end
-
-        if not screenGui:IsDescendantOf(PlayerGui) then
-            return false
-        end
-
-        -- ScreenGui itself must be enabled.
-        if screenGui.Enabled == false then
-            return false
-        end
-
+        -- Accept normal 2D Roblox UI even if the game uses an unusual hierarchy.
+        -- If it has an AbsolutePosition/AbsoluteSize and is not world-space,
+        -- IsTopArea() will decide whether it is actually on-screen.
         return true
     end
 
     local function IsTopArea(obj)
-        if not obj:IsA("TextLabel") or not IsScreenUI(obj) or not IsVisible(obj) then
+        if not obj or not (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) then
+            return false
+        end
+
+        if not IsScreenUI(obj) or not IsVisible(obj) then
             return false
         end
 
@@ -431,12 +421,12 @@ local SmartAttemptId = 0
             return false
         end
 
-        -- Require the actual GUI rectangle to intersect the visible screen.
         local left = p.X
         local right = p.X + s.X
         local top = p.Y
         local bottom = p.Y + s.Y
 
+        -- Must actually intersect the visible viewport.
         if right <= 0 or left >= vp.X or bottom <= 0 or top >= vp.Y then
             return false
         end
@@ -444,11 +434,11 @@ local SmartAttemptId = 0
         local cx = p.X + s.X / 2
         local cy = p.Y + s.Y / 2
 
-        -- CodeSniper only copies the top HUD message region.
+        -- Allow a larger HUD region so game popups aren't accidentally rejected.
         return cx >= 0
             and cx <= vp.X
             and cy >= 0
-            and cy <= vp.Y * 0.42
+            and cy <= vp.Y * 0.60
     end
 
     -- Codes > Codes > CodeRedeem (Frame) > real TextBox
@@ -1437,210 +1427,69 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             return nil
         end
 
-        local wanted = string.lower(tostring(spawnName))
-
-        local function Normalize(s)
-            return string.lower(tostring(s or ""))
-                :gsub("[^%w%s]", " ")
-                :gsub("%s+", " ")
-                :gsub("^%s+", "")
-                :gsub("%s+$", "")
-        end
-
-        local wantedNorm = Normalize(spawnName)
-
-        local function CleanUrl(url)
-            if type(url) ~= "string" then return nil end
-
-            url = url
-                :gsub("\\u003d", "=")
-                :gsub("\\u0026", "&")
-                :gsub("\\u002f", "/")
-                :gsub("\\/", "/")
-                :gsub("&amp;", "&")
-                :gsub("%%3A", ":")
-                :gsub("%%2F", "/")
-                :gsub("%%3F", "?")
-                :gsub("%%3D", "=")
-                :gsub("%%26", "&")
-
-            if not url:match("^https?://") then
-                return nil
-            end
-
-            return url
-        end
-
-        local function RequestText(url, referer)
-            local ok, response = pcall(function()
-                return requester({
-                    Url = url,
-                    Method = "GET",
-                    Headers = {
-                        ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128 Safari/537.36",
-                        ["Accept"] = "text/html,application/xhtml+xml,application/json,*/*",
-                        ["Referer"] = referer or "https://www.google.com/"
-                    }
-                })
-            end)
-
-            if not ok or not response then
-                return nil
-            end
-
-            local status = tonumber(response.StatusCode or response.Status or response.status_code or 0)
-            if status ~= 0 and (status < 200 or status >= 300) then
-                return nil
-            end
-
-            local body = response.Body or response.body
-            if type(body) ~= "string" or body == "" then
-                return nil
-            end
-
-            return body
-        end
-
-        ----------------------------------------------------------------
-        -- GOOGLE IMAGES
-        -- Require nearby result context to mention BOTH the exact brainrot
-        -- and Steal a Brainrot/brainrot so random unrelated images don't win.
-        ----------------------------------------------------------------
         local query = tostring(spawnName) .. " Steal a Brainrot"
-        local googleUrl = "https://www.google.com/search?tbm=isch&safe=active&q="
-            .. HttpService:UrlEncode(query)
+        local googleUrl =
+            "https://www.google.com/search?tbm=isch&safe=active&q=" ..
+            HttpService:UrlEncode(query)
 
-        local html = RequestText(googleUrl, "https://www.google.com/")
-        if html then
-            html = html
-                :gsub("\\u003d", "=")
+        local ok, response = pcall(function()
+            return requester({
+                Url = googleUrl,
+                Method = "GET",
+                Headers = {
+                    ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128 Safari/537.36",
+                    ["Accept"] = "text/html,application/xhtml+xml"
+                }
+            })
+        end)
+
+        if not ok or not response then
+            return nil
+        end
+
+        local status = tonumber(response.StatusCode or response.Status or response.status_code or 0)
+        if status ~= 0 and (status < 200 or status >= 300) then
+            return nil
+        end
+
+        local html = response.Body or response.body
+        if type(html) ~= "string" or html == "" then
+            return nil
+        end
+
+        html = html
+            :gsub("\\u003d", "=")
+            :gsub("\\u0026", "&")
+            :gsub("\\u002f", "/")
+            :gsub("\\/", "/")
+            :gsub("&amp;", "&")
+
+        -- Prefer Google's own image thumbnails because they are directly
+        -- fetchable and already correspond to the image-search results.
+        local firstThumb = html:match("(https://encrypted%-tbn[^\"'%s<>]+)")
+        if firstThumb then
+            firstThumb = firstThumb
                 :gsub("\\u0026", "&")
-                :gsub("\\u002f", "/")
                 :gsub("\\/", "/")
                 :gsub("&amp;", "&")
 
-            local candidates = {}
-            local seen = {}
-
-            local function ContextMatches(context)
-                local c = Normalize(context)
-                if c == "" then return false end
-
-                local hasName = c:find(wantedNorm, 1, true) ~= nil
-                local hasGame =
-                    c:find("steal a brainrot", 1, true) ~= nil
-                    or c:find("brainrot", 1, true) ~= nil
-
-                return hasName and hasGame
-            end
-
-            local function AddCandidate(raw, context)
-                local url = CleanUrl(raw)
-                if not url or seen[url] then return end
-                if not ContextMatches(context or "") then return end
-
-                seen[url] = true
-
-                local lower = string.lower(url)
-
-                if lower:find("google.com/logos", 1, true)
-                or lower:find("/favicon", 1, true)
-                or lower:find("gstatic.com/images/branding", 1, true)
-                or lower:find("googleusercontent.com/profile", 1, true)
-                or lower:find("/avatar", 1, true)
-                or lower:find("sprite", 1, true)
-                or lower:find("flag", 1, true)
-                or lower:find("wikipedia.org/static", 1, true) then
-                    return
-                end
-
-                table.insert(candidates, url)
-            end
-
-            -- Inspect all URLs with nearby Google result metadata.
-            for pos, raw in html:gmatch("()https?://[^\"'%s<>]+") do
-                local left = math.max(1, pos - 1200)
-                local right = math.min(#html, pos + #raw + 1200)
-                local context = html:sub(left, right)
-                AddCandidate(raw, context)
-            end
-
-            for _, url in ipairs(candidates) do
-                local bytes = nil
-                local ok = pcall(function()
-                    bytes = select(1, DownloadImageBytes(url))
-                end)
-
-                if ok and bytes then
-                    return url
-                end
-            end
+            return firstThumb
         end
 
-        ----------------------------------------------------------------
-        -- WIKIPEDIA/WIKIMEDIA
-        -- Only accept a page whose TITLE itself closely matches the brainrot.
-        -- No generic "<name>" fallback anymore; that caused unrelated images.
-        ----------------------------------------------------------------
-        local api =
-            "https://en.wikipedia.org/w/api.php?action=query" ..
-            "&generator=search" ..
-            "&gsrnamespace=0" ..
-            "&gsrlimit=10" ..
-            "&gsrsearch=" .. HttpService:UrlEncode(tostring(spawnName) .. " Steal a Brainrot") ..
-            "&prop=pageimages" ..
-            "&piprop=thumbnail|original" ..
-            "&pithumbsize=1000" ..
-            "&format=json" ..
-            "&origin=*"
+        -- Fallback: first ordinary image URL in the Google result HTML.
+        for raw in html:gmatch("(https?://[^\"'%s<>]+)") do
+            local lower = string.lower(raw)
 
-        local body = RequestText(api, "https://en.wikipedia.org/")
-        if body then
-            local ok, decoded = pcall(function()
-                return HttpService:JSONDecode(body)
-            end)
+            if lower:find(".png", 1, true)
+            or lower:find(".jpg", 1, true)
+            or lower:find(".jpeg", 1, true)
+            or lower:find(".webp", 1, true) then
 
-            if ok and type(decoded) == "table"
-            and type(decoded.query) == "table"
-            and type(decoded.query.pages) == "table" then
-
-                local pages = {}
-                for _, page in pairs(decoded.query.pages) do
-                    table.insert(pages, page)
-                end
-
-                table.sort(pages, function(a, b)
-                    return tonumber(a.index or 999999) < tonumber(b.index or 999999)
-                end)
-
-                for _, page in ipairs(pages) do
-                    local titleNorm = Normalize(page.title)
-
-                    -- Require the result title to contain the actual brainrot name.
-                    if titleNorm ~= "" and titleNorm:find(wantedNorm, 1, true) then
-                        local url = nil
-
-                        if type(page.original) == "table" then
-                            url = page.original.source
-                        end
-
-                        if not url and type(page.thumbnail) == "table" then
-                            url = page.thumbnail.source
-                        end
-
-                        url = CleanUrl(url)
-
-                        if url then
-                            local bytes = nil
-                            local good = pcall(function()
-                                bytes = select(1, DownloadImageBytes(url))
-                            end)
-
-                            if good and bytes then
-                                return url
-                            end
-                        end
-                    end
+                if not lower:find("google.com/logos", 1, true)
+                and not lower:find("/favicon", 1, true)
+                and not lower:find("/avatar", 1, true)
+                and not lower:find("sprite", 1, true) then
+                    return raw
                 end
             end
         end
@@ -1855,8 +1704,14 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
         spawnName = tostring(spawnName or ""):gsub("^%s+",""):gsub("%s+$","")
         playerName = tostring(playerName or Player.Name or "Unknown"):gsub("^%s+",""):gsub("%s+$","")
-        if spawnName == "" then return end
-        if playerName == "" then playerName = "Unknown" end
+
+        if spawnName == "" then
+            return
+        end
+
+        if playerName == "" then
+            playerName = "Unknown"
+        end
 
         local key = WebhookKey(spawnName, playerName)
         local state = SpawnWebhookMessages[key]
@@ -1869,36 +1724,42 @@ local SmartRedeemerToggle, SmartRedeemerLabel
                 attachment_id = nil,
                 attachment_filename = nil
             }
+
             SpawnWebhookMessages[key] = state
         end
 
         state.count += 1
         state.redeemed_at = os.time()
 
-        -- Existing stacked redemption.
+        ------------------------------------------------------------
+        -- EXISTING MESSAGE: update it if possible.
+        ------------------------------------------------------------
         if state.message_id then
-            local imageRef = nil
+            local existingImage = nil
+
             if state.attachment_filename then
-                imageRef = "attachment://" .. tostring(state.attachment_filename)
+                existingImage = "attachment://" .. tostring(state.attachment_filename)
             end
 
-            local payload = MakeWebhookPayload(
+            local updatePayload = MakeWebhookPayload(
                 spawnName,
                 playerName,
                 state.count,
-                imageRef,
+                existingImage,
                 state.redeemed_at,
                 state.attachment_id
             )
 
-            local ok = DoWebhookRequest(requester, {
+            local updateOk = DoWebhookRequest(requester, {
                 Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(state.message_id),
                 Method = "PATCH",
-                Headers = {["Content-Type"] = "application/json"},
-                Body = HttpService:JSONEncode(payload)
+                Headers = {
+                    ["Content-Type"] = "application/json"
+                },
+                Body = HttpService:JSONEncode(updatePayload)
             })
 
-            if ok then
+            if updateOk then
                 AddLog("Updated: " .. spawnName)
                 return
             end
@@ -1908,10 +1769,11 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             state.attachment_filename = nil
         end
 
-        ----------------------------------------------------------------
-        -- STEP 1: SEND MESSAGE IMMEDIATELY. NOTHING IMAGE-RELATED RUNS
-        -- BEFORE THIS REQUEST.
-        ----------------------------------------------------------------
+        ------------------------------------------------------------
+        -- NEW MESSAGE: SEND THIS FIRST.
+        -- NO GOOGLE REQUEST, IMAGE DOWNLOAD OR MULTIPART REQUEST
+        -- IS ALLOWED TO RUN BEFORE THIS JSON WEBHOOK.
+        ------------------------------------------------------------
         local initialPayload = MakeWebhookPayload(
             spawnName,
             playerName,
@@ -1921,23 +1783,27 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             nil
         )
 
-        local ok, response, err = DoWebhookRequest(requester, {
+        local sendOk, sendResponse, sendErr = DoWebhookRequest(requester, {
             Url = DISCORD_WEBHOOK .. "?wait=true",
             Method = "POST",
-            Headers = {["Content-Type"] = "application/json"},
+            Headers = {
+                ["Content-Type"] = "application/json"
+            },
             Body = HttpService:JSONEncode(initialPayload)
         })
 
-        if not ok then
-            AddLog("Discord failed: " .. tostring(err))
+        if not sendOk then
+            AddLog("Discord failed: " .. tostring(sendErr))
             state.count = math.max(0, state.count - 1)
             return
         end
 
-        local responseBody = response and (response.Body or response.body) or ""
-        if type(responseBody) == "string" and responseBody ~= "" then
+        local sendBody = sendResponse and (sendResponse.Body or sendResponse.body) or ""
+
+        if type(sendBody) == "string" and sendBody ~= "" then
             pcall(function()
-                local decoded = HttpService:JSONDecode(responseBody)
+                local decoded = HttpService:JSONDecode(sendBody)
+
                 if decoded and decoded.id then
                     state.message_id = tostring(decoded.id)
                 end
@@ -1946,31 +1812,33 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
         AddLog("Sent: " .. spawnName)
 
-        ----------------------------------------------------------------
-        -- STEP 2: IMAGE WORK IS ASYNC. IT CAN FAIL/HANG WITHOUT EVER
-        -- PREVENTING THE MESSAGE ABOVE.
-        ----------------------------------------------------------------
+        ------------------------------------------------------------
+        -- IMAGE WORK STARTS ONLY AFTER DISCORD ALREADY RECEIVED TEXT.
+        ------------------------------------------------------------
         if not state.message_id then
             return
         end
 
         task.spawn(function()
-            local imageBytes, ext, mime, usedFallback
+            local imageBytes, ext, mime
 
             local imageOk = pcall(function()
-                imageBytes, ext, mime, usedFallback = GetBestSpawnImageBytes(spawnName)
+                local imageUrl = GetSpawnImageUrl(spawnName)
+
+                if imageUrl then
+                    imageBytes, ext, mime = DownloadImageBytes(imageUrl)
+                end
             end)
 
-            -- Exact embedded IMAGE NOT FOUND fallback.
             if not imageOk or not imageBytes or imageBytes == "" then
                 imageBytes = IMAGE_NOT_FOUND_BYTES
                 ext = "png"
                 mime = "image/png"
-                usedFallback = true
             end
 
             ext = tostring(ext or "png")
             mime = tostring(mime or "image/png")
+
             local filename = "brainrot." .. ext
 
             local imagePayload = MakeWebhookPayload(
@@ -2006,60 +1874,25 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             })
 
             if not patchOk then
-                -- Some executors reject multipart PATCH.
-                -- Try a NEW multipart POST containing the image so the
-                -- picture still has a chance to reach Discord.
-                local imageOnlyPayload = {
-                    username = WEBHOOK_USERNAME,
-                    avatar_url = CODE_SNIPER_AVATAR,
-                    embeds = {
-                        {
-                            image = {url = "attachment://" .. filename},
-                            footer = {text = "FTX Sniper"}
-                        }
-                    },
-                    attachments = {
-                        {
-                            id = 0,
-                            filename = filename
-                        }
-                    }
-                }
-
-                local postBody, postContentType = BuildMultipartBody(
-                    imageOnlyPayload,
-                    imageBytes,
-                    filename,
-                    mime
-                )
-
-                local postOk = DoWebhookRequest(requester, {
-                    Url = DISCORD_WEBHOOK .. "?wait=true",
-                    Method = "POST",
-                    Headers = {
-                        ["Content-Type"] = postContentType
-                    },
-                    Body = postBody
-                })
-
-                if not postOk then
-                    AddLog("Image upload blocked")
-                end
-
+                AddLog("Image upload blocked")
                 return
             end
 
-            local body = patchResponse and (patchResponse.Body or patchResponse.body) or ""
-            if type(body) == "string" and body ~= "" then
+            local responseBody =
+                patchResponse and (patchResponse.Body or patchResponse.body) or ""
+
+            if type(responseBody) == "string" and responseBody ~= "" then
                 pcall(function()
-                    local decoded = HttpService:JSONDecode(body)
-                    if decoded and type(decoded.attachments) == "table" and decoded.attachments[1] then
+                    local decoded = HttpService:JSONDecode(responseBody)
+
+                    if decoded
+                    and type(decoded.attachments) == "table"
+                    and decoded.attachments[1] then
                         local attachment = decoded.attachments[1]
+
                         state.attachment_id = tostring(attachment.id or "0")
-                        state.attachment_filename = tostring(attachment.filename or filename)
-                    else
-                        state.attachment_id = "0"
-                        state.attachment_filename = filename
+                        state.attachment_filename =
+                            tostring(attachment.filename or filename)
                     end
                 end)
             end
@@ -2154,7 +1987,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     local SpawnSeenVisible = {}
 
     local function HandleSpawnResult(obj)
-        if not obj:IsA("TextLabel") then return end
+        if not (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) then return end
 
         if not IsVisible(obj) then
             SpawnSeenVisible[obj] = false
@@ -2889,7 +2722,7 @@ local function HandlePopup(obj)
         Loading.Visible = false
     end)
 
-    print("CodeSniper V51 loaded - appends Steal a Brainrot to image searches")
+    print("CodeSniper V53 loaded - restored on-screen message detection")
 
 end
 
