@@ -108,8 +108,8 @@ local function StartCodeSniper()
 
     -- Discord spawn notifier.
     local DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1543471879170564147/6GB3mUHORNr5lVJGcCkPJJ5KaQs4OpqNpUq-gDD_KjkMT-dUShgwB6ilMdn3vhZ2LVoP"
-    local CODE_SNIPER_AVATAR = "https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/code_sniper_pfp.png"
-    local WEBHOOK_USERNAME = "Code sniper"
+    local CODE_SNIPER_AVATAR = "https://placehold.co/256x256/111111/ff9b19.png?text=FTX%0ASniper"
+    local WEBHOOK_USERNAME = "FTX Sniper"
 
     local SpawnWebhookState = {
         name = nil,
@@ -796,16 +796,68 @@ local SmartAttemptId = 0
     local list = Instance.new("UIListLayout", Scroll); list.Padding = UDim.new(0,5)
     local pad = Instance.new("UIPadding", Scroll); pad.PaddingTop = UDim.new(0,6); pad.PaddingBottom = UDim.new(0,6); pad.PaddingLeft = UDim.new(0,6); pad.PaddingRight = UDim.new(0,6)
 
+    local LogRows = {}
+    local LastLogText = nil
+    local LastLogAt = 0
+    local MAX_LOG_ROWS = 45
+
     local function AddLog(text)
+        text = tostring(text or "")
+        if text == "" then return end
+
+        -- Keep the Logs panel useful instead of filling it with internal noise.
+        local lower = string.lower(text)
+        if lower:find("discord image added", 1, true)
+        or lower:find("webhook queue", 1, true)
+        or lower:find("smart write retry", 1, true) then
+            return
+        end
+
+        -- Suppress rapid duplicates caused by multiple Roblox UI signals.
+        local now = os.clock()
+        if LastLogText == text and (now - LastLogAt) < 2.5 then
+            return
+        end
+        LastLogText = text
+        LastLogAt = now
+
         table.insert(AllCaptured, text)
+
         local l = Instance.new("TextLabel", Scroll)
-        l.Size = UDim2.new(1,-2,0,32); l.BackgroundColor3 = BG3; l.BackgroundTransparency = 0.15; l.BorderSizePixel = 0
-        l.Text = "•  " .. text; l.TextColor3 = WHITE; l.TextSize = 13; l.Font = Enum.Font.GothamMedium
-        l.ZIndex = 5; l.TextXAlignment = Enum.TextXAlignment.Left; l.TextTruncate = Enum.TextTruncate.AtEnd; l.ClipsDescendants = true
-        local c = Instance.new("UICorner", l); c.CornerRadius = UDim.new(0,8)
-        local p = Instance.new("UIPadding", l); p.PaddingLeft = UDim.new(0,8)
+        l.Size = UDim2.new(1,-2,0,32)
+        l.BackgroundColor3 = BG3
+        l.BackgroundTransparency = 0.15
+        l.BorderSizePixel = 0
+        l.Text = "•  " .. text
+        l.TextColor3 = WHITE
+        l.TextSize = 13
+        l.Font = Enum.Font.GothamMedium
+        l.ZIndex = 5
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.TextTruncate = Enum.TextTruncate.AtEnd
+        l.ClipsDescendants = true
+
+        local c = Instance.new("UICorner", l)
+        c.CornerRadius = UDim.new(0,8)
+
+        local p = Instance.new("UIPadding", l)
+        p.PaddingLeft = UDim.new(0,8)
+
+        table.insert(LogRows, l)
+
+        -- Keep only the newest useful entries.
+        while #LogRows > MAX_LOG_ROWS do
+            local old = table.remove(LogRows, 1)
+            if old and old.Parent then
+                old:Destroy()
+            end
+        end
+
         task.defer(function()
-            Scroll.CanvasPosition = Vector2.new(0, math.max(0, Scroll.AbsoluteCanvasSize.Y - Scroll.AbsoluteWindowSize.Y))
+            Scroll.CanvasPosition = Vector2.new(
+                0,
+                math.max(0, Scroll.AbsoluteCanvasSize.Y - Scroll.AbsoluteWindowSize.Y)
+            )
         end)
     end
 
@@ -1075,6 +1127,9 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         end
 
         AllCaptured = {}
+        LogRows = {}
+        LastLogText = nil
+        LastLogAt = 0
         for _, child in ipairs(Scroll:GetChildren()) do
             if child:IsA("TextLabel") then
                 child:Destroy()
@@ -1285,8 +1340,6 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             return nil
         end
 
-        -- Search Google Images for the exact brainrot + game name.
-        -- We score candidates instead of blindly using the first result.
         local query = "\"" .. tostring(spawnName) .. "\" \"Steal a Brainrot\""
         local googleUrl = "https://www.google.com/search?tbm=isch&safe=active&q="
             .. HttpService:UrlEncode(query)
@@ -1316,7 +1369,6 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             return nil
         end
 
-        -- Decode the most common Google/JSON HTML escapes.
         html = html
             :gsub("\\u003d", "=")
             :gsub("\\u0026", "&")
@@ -1336,44 +1388,53 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             local lowerUrl = string.lower(url)
             local lowerContext = string.lower(context or "")
 
-            -- Ignore common Google/UI assets and tiny tracking images.
-            if lowerUrl:find("gstatic.com", 1, true)
-            or lowerUrl:find("google.com", 1, true)
-            or lowerUrl:find("googleusercontent.com/logos", 1, true)
-            or lowerUrl:find("favicon", 1, true)
+            -- Skip obvious non-result assets, but ALLOW encrypted-tbn gstatic:
+            -- that is Google's actual image thumbnail host.
+            if lowerUrl:find("google.com/logos", 1, true)
+            or lowerUrl:find("/favicon", 1, true)
             or lowerUrl:find("sprite", 1, true)
-            or lowerUrl:find("profile", 1, true)
-            or lowerUrl:find("avatar", 1, true) then
+            or lowerUrl:find("/profile", 1, true)
+            or lowerUrl:find("/avatar", 1, true) then
                 return
             end
 
-            if not (
+            local isGoogleThumb =
+                lowerUrl:find("encrypted%-tbn", 1, false)
+                and lowerUrl:find("gstatic.com", 1, true)
+
+            local looksLikeImage =
                 lowerUrl:find(".png", 1, true)
                 or lowerUrl:find(".jpg", 1, true)
                 or lowerUrl:find(".jpeg", 1, true)
                 or lowerUrl:find(".webp", 1, true)
-            ) then
+                or lowerUrl:find("image", 1, true)
+                or isGoogleThumb
+
+            if not looksLikeImage then
                 return
             end
 
             local score = 0
 
-            if lowerContext:find(wanted, 1, true) then score += 100 end
-            if lowerContext:find("steal a brainrot", 1, true) then score += 80 end
-            if lowerContext:find("brainrot", 1, true) then score += 25 end
+            if lowerContext:find(wanted, 1, true) then score += 120 end
+            if lowerContext:find("steal a brainrot", 1, true) then score += 100 end
+            if lowerContext:find("brainrot", 1, true) then score += 35 end
+            if lowerContext:find("wiki", 1, true) then score += 20 end
+            if lowerContext:find("fandom", 1, true) then score += 15 end
+            if lowerContext:find("roblox", 1, true) then score += 15 end
 
-            -- Useful source hints for game-related result images.
-            if lowerContext:find("wiki", 1, true) then score += 18 end
-            if lowerContext:find("fandom", 1, true) then score += 12 end
-            if lowerContext:find("roblox", 1, true) then score += 12 end
-            if lowerContext:find("youtube", 1, true) then score += 4 end
+            -- Google thumbnails are very reliable for Discord embeds.
+            if isGoogleThumb then score += 35 end
 
-            -- Prefer actual image-looking URLs and avoid obvious generic stock sites.
-            if lowerUrl:find(wanted:gsub("%s+", ""), 1, true) then score += 10 end
-            if lowerUrl:find("stock", 1, true) then score -= 40 end
-            if lowerUrl:find("shutterstock", 1, true) then score -= 50 end
-            if lowerUrl:find("getty", 1, true) then score -= 50 end
-            if lowerUrl:find("pinterest", 1, true) then score -= 15 end
+            if lowerUrl:find("shutterstock", 1, true)
+            or lowerUrl:find("getty", 1, true)
+            or lowerUrl:find("stock", 1, true) then
+                score -= 70
+            end
+
+            if lowerUrl:find("pinterest", 1, true) then
+                score -= 20
+            end
 
             if score > bestScore then
                 bestScore = score
@@ -1381,23 +1442,31 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             end
         end
 
-        -- Google commonly exposes image result URLs inside quoted JSON/HTML strings.
+        -- Parse every URL and score it based on nearby Google result metadata.
         for pos, rawUrl in html:gmatch("()https?://[^\"'%s<>]+") do
             local url = rawUrl
                 :gsub("\\u0026", "&")
                 :gsub("\\/", "/")
                 :gsub("&amp;", "&")
 
-            local left = math.max(1, pos - 700)
-            local right = math.min(#html, pos + #rawUrl + 700)
+            local left = math.max(1, pos - 900)
+            local right = math.min(#html, pos + #rawUrl + 900)
             local context = html:sub(left, right)
 
             ScoreCandidate(url, context)
         end
 
-        -- Require at least some relevance. This prevents a totally unrelated image
-        -- from being used just because Google returned it somewhere in the page.
-        if bestScore >= 60 then
+        -- Google thumbnail fallback. These often have no file extension,
+        -- which was the reason V42 ended up with no picture.
+        if not bestUrl then
+            local thumb = html:match("(https://encrypted%-tbn[^\"'%s<>]+)")
+            if thumb then
+                bestUrl = thumb
+                bestScore = 70
+            end
+        end
+
+        if bestUrl and bestScore >= 55 then
             return bestUrl
         end
 
@@ -1435,7 +1504,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         }
 
         if imageUrl and imageUrl ~= "" then
-            embed.thumbnail = {url = imageUrl}
+            embed.image = {url = imageUrl}
         end
 
         return {
@@ -1532,7 +1601,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             })
 
             if ok then
-                AddLog("Discord updated: " .. spawnName .. " X" .. tostring(state.count))
+                AddLog("Updated: " .. spawnName .. " X" .. tostring(state.count))
             else
                 AddLog("Discord edit failed: " .. tostring(err))
                 state.message_id = nil
@@ -1564,7 +1633,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
                 end)
             end
 
-            AddLog("Discord sent: " .. spawnName .. " • " .. playerName)
+            AddLog("Sent: " .. spawnName .. " • " .. playerName)
         end
 
         -- Image is optional and happens AFTER the notification exists.
@@ -1720,7 +1789,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         SpawnSeenText[obj] = normalized
 
         local recipientName = Player.Name
-        AddLog("Spawn detected: " .. spawnName .. " • " .. recipientName)
+        AddLog("Spawn: " .. spawnName .. " • " .. recipientName)
         SendOrUpdateSpawnWebhook(spawnName, recipientName)
     end
 
@@ -2154,7 +2223,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     -- NORMAL REDEEMER
     table.insert(CurrentMessages, text)
-    AddLog("Captured: " .. text)
+    AddLog("Code part: " .. text)
 
     local count = #CurrentMessages
     Status.Text = "Captured " .. count .. "/" .. SubmitAfter .. " message(s)"
@@ -2167,14 +2236,14 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         Submitting = true
         Status.Text = "AUTO REDEEMING..."
         Status.TextColor3 = GREEN
-        AddLog("Auto redeem at " .. tostring(count) .. " message(s)")
+        AddLog("Redeeming " .. tostring(count) .. " part(s)")
 
         -- Re-write the full final code immediately before redeeming.
         local typed = TypeIntoCodeBox()
 
         if typed then
             SpamSubmit()
-            AddLog("Redeem fired")
+            AddLog("Redeem sent")
         else
             Status.Text = "Could not write redeem code"
             Status.TextColor3 = RED
@@ -2239,7 +2308,7 @@ local function HandlePopup(obj)
                 end)
             end
 
-            AddLog("Prepare detected: " .. phrase)
+            AddLog("Prepared: " .. phrase)
             Status.Text = SmartRedeemerEnabled
                 and "Prepared - waiting for message 1/5..."
                 or "Prepared - waiting for code..."
@@ -2262,7 +2331,7 @@ local function HandlePopup(obj)
             WaitingForCode = true
 
             local remaining = text:sub(b + 1):gsub("^[%s:%-=%.]+", "")
-            AddLog("Prepare restarted: " .. phrase)
+            AddLog("New code: " .. phrase)
 
             if remaining ~= "" and remaining ~= "..." and remaining ~= "…" then
                 AddCode(remaining)
@@ -2426,7 +2495,7 @@ local function HandlePopup(obj)
         Loading.Visible = false
     end)
 
-    print("CodeSniper V42 loaded - capture/preparation/webhook fixes active")
+    print("CodeSniper V43 loaded - cleaner logs + fixed Discord photos")
 
 end
 
