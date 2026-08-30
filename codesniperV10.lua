@@ -106,21 +106,17 @@ local function StartCodeSniper()
     local VirtualInputManager = game:GetService("VirtualInputManager")
     local Player = Players.LocalPlayer
 
-    -- Discord notifier: only active in this exact Roblox place.
-    local TARGET_GAME_ID = "109983668079237"
+    -- Discord spawn notifier.
     local DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1543471879170564147/6GB3mUHORNr5lVJGcCkPJJ5KaQs4OpqNpUq-gDD_KjkMT-dUShgwB6ilMdn3vhZ2LVoP"
     local CODE_SNIPER_AVATAR = "https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/code_sniper_pfp.png"
     local WEBHOOK_USERNAME = "Code sniper"
 
     local SpawnWebhookState = {
         name = nil,
+        user = nil,
         count = 0,
         message_id = nil
     }
-
-    local function IsTargetGame()
-        return tostring(game.PlaceId) == TARGET_GAME_ID
-    end
 
     local PlayerGui = Player:WaitForChild("PlayerGui")
 
@@ -1245,12 +1241,12 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         return nil
     end
 
-    local function MakeWebhookPayload(spawnName, count, imageUrl)
+    local function MakeWebhookPayload(spawnName, playerName, count, imageUrl)
         local suffix = count > 1 and (" X" .. tostring(count)) or ""
 
         local embed = {
             title = tostring(spawnName) .. " redeemed",
-            description = "**Redeemed**\\n\\n**" .. tostring(spawnName) .. "** spawned" .. suffix .. ".",
+            description = "**Redeemed**\n\n**" .. tostring(spawnName) .. "** spawned" .. suffix .. ".",
             color = 16753920,
             fields = {
                 {
@@ -1259,8 +1255,8 @@ local SmartRedeemerToggle, SmartRedeemerLabel
                     inline = true
                 },
                 {
-                    name = "Game",
-                    value = "`" .. TARGET_GAME_ID .. "`",
+                    name = "User",
+                    value = "**" .. tostring(playerName) .. "**",
                     inline = true
                 }
             },
@@ -1282,9 +1278,8 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         }
     end
 
-    local function SendOrUpdateSpawnWebhook(spawnName)
-        if not IsTargetGame() then return end
 
+    local function SendOrUpdateSpawnWebhook(spawnName, playerName)
         local requester = GetRequestFunction()
         if not requester then
             AddLog("Webhook unavailable: request API missing")
@@ -1292,17 +1287,29 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         end
 
         spawnName = tostring(spawnName or ""):gsub("^%s+",""):gsub("%s+$","")
-        if spawnName == "" then return end
+        playerName = tostring(playerName or Player.Name or "Unknown"):gsub("^%s+",""):gsub("%s+$","")
 
-        local sameSpawn = SpawnWebhookState.name
+        if spawnName == "" then return end
+        if playerName == "" then playerName = "Unknown" end
+
+        -- Stack only when BOTH the spawned thing and user are the same.
+        local sameSpawnAndUser =
+            SpawnWebhookState.name
+            and SpawnWebhookState.user
             and string.lower(SpawnWebhookState.name) == string.lower(spawnName)
+            and string.lower(SpawnWebhookState.user) == string.lower(playerName)
             and SpawnWebhookState.message_id ~= nil
 
         local imageUrl = GetSpawnImageUrl(spawnName)
 
-        if sameSpawn then
+        if sameSpawnAndUser then
             SpawnWebhookState.count += 1
-            local payload = MakeWebhookPayload(spawnName, SpawnWebhookState.count, imageUrl)
+            local payload = MakeWebhookPayload(
+                spawnName,
+                playerName,
+                SpawnWebhookState.count,
+                imageUrl
+            )
 
             local ok = pcall(function()
                 requester({
@@ -1314,18 +1321,28 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             end)
 
             if ok then
-                AddLog("Webhook updated: " .. spawnName .. " X" .. tostring(SpawnWebhookState.count))
+                AddLog(
+                    "Webhook updated: "
+                    .. spawnName
+                    .. " X"
+                    .. tostring(SpawnWebhookState.count)
+                    .. " • "
+                    .. playerName
+                )
             else
                 AddLog("Webhook update failed")
             end
+
             return
         end
 
+        -- Different spawn OR different user = new Discord message.
         SpawnWebhookState.name = spawnName
+        SpawnWebhookState.user = playerName
         SpawnWebhookState.count = 1
         SpawnWebhookState.message_id = nil
 
-        local payload = MakeWebhookPayload(spawnName, 1, imageUrl)
+        local payload = MakeWebhookPayload(spawnName, playerName, 1, imageUrl)
 
         local ok, response = pcall(function()
             return requester({
@@ -1351,8 +1368,9 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             end)
         end
 
-        AddLog("Webhook sent: " .. spawnName)
+        AddLog("Webhook sent: " .. spawnName .. " • " .. playerName)
     end
+
 
     local function ExtractSpawnName(rawText)
         local t = tostring(rawText or ""):gsub("^%s+",""):gsub("%s+$","")
@@ -1396,7 +1414,6 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     local LastSpawnText = {}
 
     local function HandleSpawnResult(obj)
-        if not IsTargetGame() then return end
         if not IsBottomGreenSpawnText(obj) then return end
 
         local raw = tostring(obj.Text or "")
@@ -1406,12 +1423,17 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         local spawnName = ExtractSpawnName(raw)
         if not spawnName then return end
 
-        AddLog("Spawn detected: " .. spawnName)
+        -- This script is the one redeeming the code, so the recipient is
+        -- the LocalPlayer unless the game explicitly provides another name.
+        local recipientName = Player.Name
+
+        AddLog("Spawn detected: " .. spawnName .. " • " .. recipientName)
 
         task.spawn(function()
-            SendOrUpdateSpawnWebhook(spawnName)
+            SendOrUpdateSpawnWebhook(spawnName, recipientName)
         end)
     end
+
 
     -- Type into real TextBox inside CodeRedeem
     local function TypeIntoCodeBox()
@@ -2016,11 +2038,6 @@ local function HandlePopup(obj)
 
 end
 
-
-if not IsTargetGame() then
-    warn("CodeSniper: wrong game. Expected PlaceId " .. TARGET_GAME_ID .. ", got " .. tostring(game.PlaceId))
-    return
-end
 
 StartCodeSniper()
 
