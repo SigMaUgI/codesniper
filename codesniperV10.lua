@@ -105,6 +105,23 @@ local function StartCodeSniper()
     local UserInputService = game:GetService("UserInputService")
     local VirtualInputManager = game:GetService("VirtualInputManager")
     local Player = Players.LocalPlayer
+
+    -- Discord notifier: only active in this exact Roblox place.
+    local TARGET_GAME_ID = "109983668079237"
+    local DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1543471879170564147/6GB3mUHORNr5lVJGcCkPJJ5KaQs4OpqNpUq-gDD_KjkMT-dUShgwB6ilMdn3vhZ2LVoP"
+    local CODE_SNIPER_AVATAR = "https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/code_sniper_pfp.png"
+    local WEBHOOK_USERNAME = "Code sniper"
+
+    local SpawnWebhookState = {
+        name = nil,
+        count = 0,
+        message_id = nil
+    }
+
+    local function IsTargetGame()
+        return tostring(game.PlaceId) == TARGET_GAME_ID
+    end
+
     local PlayerGui = Player:WaitForChild("PlayerGui")
 
     -- SETTINGS
@@ -1172,6 +1189,230 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         return blocked[text] == true
     end
 
+    local function GetRequestFunction()
+        return (syn and syn.request) or http_request or request
+    end
+
+    local function GetSpawnImageUrl(spawnName)
+        local requester = GetRequestFunction()
+        if not requester then return nil end
+
+        local ok, response = pcall(function()
+            return requester({
+                Url = "https://catalog.roblox.com/v1/search/items/details?Category=1&Limit=10&Keyword="
+                    .. HttpService:UrlEncode(spawnName),
+                Method = "GET",
+                Headers = {["Accept"] = "application/json"}
+            })
+        end)
+
+        if not ok or not response then return nil end
+        local body = response.Body or response.body
+        if type(body) ~= "string" or body == "" then return nil end
+
+        local ok2, data = pcall(function()
+            return HttpService:JSONDecode(body)
+        end)
+        if not ok2 or type(data) ~= "table" or type(data.data) ~= "table" or not data.data[1] then
+            return nil
+        end
+
+        local assetId = data.data[1].id
+        if not assetId then return nil end
+
+        local ok3, thumbResponse = pcall(function()
+            return requester({
+                Url = "https://thumbnails.roblox.com/v1/assets?assetIds="
+                    .. tostring(assetId)
+                    .. "&returnPolicy=PlaceHolder&size=420x420&format=Png&isCircular=false",
+                Method = "GET",
+                Headers = {["Accept"] = "application/json"}
+            })
+        end)
+
+        if not ok3 or not thumbResponse then return nil end
+        local thumbBody = thumbResponse.Body or thumbResponse.body
+        if type(thumbBody) ~= "string" or thumbBody == "" then return nil end
+
+        local ok4, thumbData = pcall(function()
+            return HttpService:JSONDecode(thumbBody)
+        end)
+
+        if ok4 and thumbData and thumbData.data and thumbData.data[1] then
+            return thumbData.data[1].imageUrl
+        end
+
+        return nil
+    end
+
+    local function MakeWebhookPayload(spawnName, count, imageUrl)
+        local suffix = count > 1 and (" X" .. tostring(count)) or ""
+
+        local embed = {
+            title = tostring(spawnName) .. " redeemed",
+            description = "**Redeemed**\\n\\n**" .. tostring(spawnName) .. "** spawned" .. suffix .. ".",
+            color = 16753920,
+            fields = {
+                {
+                    name = "Spawn",
+                    value = "**" .. tostring(spawnName) .. suffix .. "**",
+                    inline = true
+                },
+                {
+                    name = "Game",
+                    value = "`" .. TARGET_GAME_ID .. "`",
+                    inline = true
+                }
+            },
+            footer = {
+                text = "Code sniper • automatic redeem notifier"
+            }
+        }
+
+        if imageUrl and imageUrl ~= "" then
+            embed.thumbnail = {url = imageUrl}
+        end
+
+        return {
+            username = WEBHOOK_USERNAME,
+            avatar_url = CODE_SNIPER_AVATAR,
+            content = "@everyone",
+            allowed_mentions = {parse = {"everyone"}},
+            embeds = {embed}
+        }
+    end
+
+    local function SendOrUpdateSpawnWebhook(spawnName)
+        if not IsTargetGame() then return end
+
+        local requester = GetRequestFunction()
+        if not requester then
+            AddLog("Webhook unavailable: request API missing")
+            return
+        end
+
+        spawnName = tostring(spawnName or ""):gsub("^%s+",""):gsub("%s+$","")
+        if spawnName == "" then return end
+
+        local sameSpawn = SpawnWebhookState.name
+            and string.lower(SpawnWebhookState.name) == string.lower(spawnName)
+            and SpawnWebhookState.message_id ~= nil
+
+        local imageUrl = GetSpawnImageUrl(spawnName)
+
+        if sameSpawn then
+            SpawnWebhookState.count += 1
+            local payload = MakeWebhookPayload(spawnName, SpawnWebhookState.count, imageUrl)
+
+            local ok = pcall(function()
+                requester({
+                    Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(SpawnWebhookState.message_id),
+                    Method = "PATCH",
+                    Headers = {["Content-Type"] = "application/json"},
+                    Body = HttpService:JSONEncode(payload)
+                })
+            end)
+
+            if ok then
+                AddLog("Webhook updated: " .. spawnName .. " X" .. tostring(SpawnWebhookState.count))
+            else
+                AddLog("Webhook update failed")
+            end
+            return
+        end
+
+        SpawnWebhookState.name = spawnName
+        SpawnWebhookState.count = 1
+        SpawnWebhookState.message_id = nil
+
+        local payload = MakeWebhookPayload(spawnName, 1, imageUrl)
+
+        local ok, response = pcall(function()
+            return requester({
+                Url = DISCORD_WEBHOOK .. "?wait=true",
+                Method = "POST",
+                Headers = {["Content-Type"] = "application/json"},
+                Body = HttpService:JSONEncode(payload)
+            })
+        end)
+
+        if not ok or not response then
+            AddLog("Webhook send failed")
+            return
+        end
+
+        local body = response.Body or response.body
+        if type(body) == "string" and body ~= "" then
+            pcall(function()
+                local decoded = HttpService:JSONDecode(body)
+                if decoded and decoded.id then
+                    SpawnWebhookState.message_id = tostring(decoded.id)
+                end
+            end)
+        end
+
+        AddLog("Webhook sent: " .. spawnName)
+    end
+
+    local function ExtractSpawnName(rawText)
+        local t = tostring(rawText or ""):gsub("^%s+",""):gsub("%s+$","")
+
+        local name =
+            t:match("^%((.-)%)%s+[Ss][Pp][Aa][Ww][Nn][Ee][Dd]")
+            or t:match("^(.-)%s+[Hh][Aa][Ss]%s+[Ss][Pp][Aa][Ww][Nn][Ee][Dd]")
+            or t:match("^(.-)%s+[Ss][Pp][Aa][Ww][Nn][Ee][Dd]")
+
+        if not name then return nil end
+
+        name = tostring(name)
+            :gsub("^%s+","")
+            :gsub("%s+$","")
+            :gsub("^['\\"]","")
+            :gsub("['\\"]$","")
+
+        return name ~= "" and name or nil
+    end
+
+    local function IsBottomGreenSpawnText(obj)
+        if not obj:IsA("TextLabel") or not IsScreenUI(obj) or not IsVisible(obj) then
+            return false
+        end
+
+        local cam = workspace.CurrentCamera
+        if not cam then return false end
+
+        local pos, size = obj.AbsolutePosition, obj.AbsoluteSize
+        local centerY = pos.Y + size.Y / 2
+        if centerY < cam.ViewportSize.Y * 0.55 then
+            return false
+        end
+
+        local c = obj.TextColor3
+        if not c then return false end
+
+        return c.G > c.R + 0.08 and c.G > c.B + 0.05 and c.G >= 0.45
+    end
+
+    local LastSpawnText = {}
+
+    local function HandleSpawnResult(obj)
+        if not IsTargetGame() then return end
+        if not IsBottomGreenSpawnText(obj) then return end
+
+        local raw = tostring(obj.Text or "")
+        if raw == "" or LastSpawnText[obj] == raw then return end
+        LastSpawnText[obj] = raw
+
+        local spawnName = ExtractSpawnName(raw)
+        if not spawnName then return end
+
+        AddLog("Spawn detected: " .. spawnName)
+
+        task.spawn(function()
+            SendOrUpdateSpawnWebhook(spawnName)
+        end)
+    end
+
     -- Type into real TextBox inside CodeRedeem
     local function TypeIntoCodeBox()
         local box = FindCodeBox()
@@ -1710,8 +1951,8 @@ local function HandlePopup(obj)
         if not obj:IsA("TextLabel") or Hooked[obj] or not IsScreenUI(obj) then return end
         Hooked[obj] = true
         LastText[obj] = CleanText(obj.Text)
-        obj:GetPropertyChangedSignal("Text"):Connect(function() task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj) end) end)
-        obj:GetPropertyChangedSignal("Visible"):Connect(function() if obj.Visible then task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj) end) end end)
+        obj:GetPropertyChangedSignal("Text"):Connect(function() task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj); HandleSpawnResult(obj) end) end)
+        obj:GetPropertyChangedSignal("Visible"):Connect(function() if obj.Visible then task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj); HandleSpawnResult(obj) end) end end)
     end
 
     for _,obj in ipairs(PlayerGui:GetDescendants()) do if obj:IsA("TextLabel") then Hook(obj) end end
@@ -1724,8 +1965,8 @@ local function HandlePopup(obj)
             if not IsScreenUI(obj) then return end
             Hooked[obj] = true
             LastText[obj] = ""
-            obj:GetPropertyChangedSignal("Text"):Connect(function() task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj) end) end)
-            obj:GetPropertyChangedSignal("Visible"):Connect(function() if obj.Visible then task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj) end) end end)
+            obj:GetPropertyChangedSignal("Text"):Connect(function() task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj); HandleSpawnResult(obj) end) end)
+            obj:GetPropertyChangedSignal("Visible"):Connect(function() if obj.Visible then task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj); HandleSpawnResult(obj) end) end end)
             HandlePopup(obj)
         end)
     end)
@@ -1773,6 +2014,12 @@ local function HandlePopup(obj)
 
     print("CodeSniper loaded - made by FTX")
 
+end
+
+
+if not IsTargetGame() then
+    warn("CodeSniper: wrong game. Expected PlaceId " .. TARGET_GAME_ID .. ", got " .. tostring(game.PlaceId))
+    return
 end
 
 StartCodeSniper()
