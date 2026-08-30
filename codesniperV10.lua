@@ -111,6 +111,35 @@ local function StartCodeSniper()
     local CODE_SNIPER_AVATAR = "https://placehold.co/256x256/111111/ff9b19.png?text=FTX%0ASniper"
     local WEBHOOK_USERNAME = "FTX Sniper"
 
+    -- Exact fallback image supplied by the user. This is uploaded directly to
+    -- Discord whenever a brainrot image cannot be found/downloaded.
+    local IMAGE_NOT_FOUND_B64 = [[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]]
+
+    local function Base64Decode(data)
+        local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        data = tostring(data or ""):gsub("[^" .. alphabet .. "=]", "")
+
+        return (data:gsub(".", function(x)
+            if x == "=" then return "" end
+            local r, f = "", (alphabet:find(x, 1, true) or 1) - 1
+            for i = 6, 1, -1 do
+                r = r .. ((f % 2 ^ i - f % 2 ^ (i - 1) > 0) and "1" or "0")
+            end
+            return r
+        end):gsub("%d%d%d?%d?%d?%d?%d?%d?", function(x)
+            if #x ~= 8 then return "" end
+            local c = 0
+            for i = 1, 8 do
+                if x:sub(i, i) == "1" then
+                    c = c + 2 ^ (8 - i)
+                end
+            end
+            return string.char(c)
+        end))
+    end
+
+    local IMAGE_NOT_FOUND_BYTES = Base64Decode(IMAGE_NOT_FOUND_B64)
+
     local SpawnWebhookState = {
         name = nil,
         user = nil,
@@ -1474,12 +1503,12 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     end
 
 
-    local function MakeWebhookPayload(spawnName, playerName, count, imageUrl, redeemedAt)
+    local function MakeWebhookPayload(spawnName, playerName, count, imageUrl, redeemedAt, attachmentId)
         local suffix = count > 1 and (" X" .. tostring(count)) or ""
 
         local embed = {
-            title = tostring(spawnName) .. " redeemed",
-            description = "**Redeemed**\n\n**" .. tostring(spawnName) .. "** spawned" .. suffix .. ".",
+            -- No embed title. The brainrot name itself is the large Discord heading.
+            description = "# " .. tostring(spawnName) .. suffix,
             color = 16753920,
             fields = {
                 {
@@ -1499,7 +1528,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
                 }
             },
             footer = {
-                text = "Code sniper • automatic redeem notifier"
+                text = "FTX Sniper"
             }
         }
 
@@ -1507,13 +1536,25 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             embed.image = {url = imageUrl}
         end
 
-        return {
+        local payload = {
             username = WEBHOOK_USERNAME,
             avatar_url = CODE_SNIPER_AVATAR,
             content = "@everyone",
             allowed_mentions = {parse = {"everyone"}},
             embeds = {embed}
         }
+
+        -- Keep an existing Discord attachment when editing a stacked message.
+        if attachmentId then
+            payload.attachments = {
+                {
+                    id = tostring(attachmentId),
+                    filename = "brainrot.png"
+                }
+            }
+        end
+
+        return payload
     end
 
 
@@ -1554,10 +1595,108 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         return true, response, nil
     end
 
+    local function DownloadImageBytes(url)
+        local requester = GetRequestFunction()
+        if not requester or not url or url == "" then
+            return nil
+        end
+
+        local ok, response = pcall(function()
+            return requester({
+                Url = url,
+                Method = "GET",
+                Headers = {
+                    ["User-Agent"] = "Mozilla/5.0",
+                    ["Accept"] = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                    ["Referer"] = "https://www.google.com/"
+                }
+            })
+        end)
+
+        if not ok or not response then
+            return nil
+        end
+
+        local status = tonumber(response.StatusCode or response.Status or response.status_code or 0)
+        if status ~= 0 and (status < 200 or status >= 300) then
+            return nil
+        end
+
+        local body = response.Body or response.body
+        if type(body) ~= "string" or #body < 200 then
+            return nil
+        end
+
+        -- Basic signature check so HTML/error pages don't get uploaded as pictures.
+        local isPng = body:sub(1, 8) == "\137PNG\r\n\26\n"
+        local isJpg = body:sub(1, 2) == "\255\216"
+        local isWebp = body:sub(1, 4) == "RIFF" and body:sub(9, 12) == "WEBP"
+        local isGif = body:sub(1, 6) == "GIF87a" or body:sub(1, 6) == "GIF89a"
+
+        if not (isPng or isJpg or isWebp or isGif) then
+            return nil
+        end
+
+        local ext = "png"
+        local mime = "image/png"
+        if isJpg then ext, mime = "jpg", "image/jpeg"
+        elseif isWebp then ext, mime = "webp", "image/webp"
+        elseif isGif then ext, mime = "gif", "image/gif"
+        end
+
+        return body, ext, mime
+    end
+
+    local function GetBestSpawnImageBytes(spawnName)
+        local imageUrl = CachedSpawnImage(spawnName)
+        if imageUrl then
+            local bytes, ext, mime = DownloadImageBytes(imageUrl)
+            if bytes then
+                return bytes, ext, mime, false
+            end
+        end
+
+        -- Guaranteed fallback: exact IMAGE NOT FOUND picture embedded in V44.
+        return IMAGE_NOT_FOUND_BYTES, "png", "image/png", true
+    end
+
+    local function BuildMultipartBody(payloadTable, imageBytes, filename, mime)
+        local boundary = "----FTXSniper" .. tostring(math.floor(os.clock() * 1000000))
+        local crlf = "\r\n"
+
+        local payloadJson = HttpService:JSONEncode(payloadTable)
+
+        local body =
+            "--" .. boundary .. crlf ..
+            'Content-Disposition: form-data; name="payload_json"' .. crlf ..
+            "Content-Type: application/json" .. crlf .. crlf ..
+            payloadJson .. crlf ..
+            "--" .. boundary .. crlf ..
+            'Content-Disposition: form-data; name="files[0]"; filename="' .. tostring(filename) .. '"' .. crlf ..
+            "Content-Type: " .. tostring(mime) .. crlf .. crlf ..
+            imageBytes .. crlf ..
+            "--" .. boundary .. "--" .. crlf
+
+        return body, "multipart/form-data; boundary=" .. boundary
+    end
+
+    local function PostWebhookWithImage(requester, payload, imageBytes, filename, mime)
+        local body, contentType = BuildMultipartBody(payload, imageBytes, filename, mime)
+
+        return DoWebhookRequest(requester, {
+            Url = DISCORD_WEBHOOK .. "?wait=true",
+            Method = "POST",
+            Headers = {
+                ["Content-Type"] = contentType
+            },
+            Body = body
+        })
+    end
+
     local function ProcessSpawnWebhook(spawnName, playerName)
         local requester = GetRequestFunction()
         if not requester then
-            AddLog("Webhook unavailable: executor has no request()")
+            AddLog("Discord unavailable")
             return
         end
 
@@ -1573,7 +1712,10 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             state = {
                 count = 0,
                 message_id = nil,
-                redeemed_at = os.time()
+                redeemed_at = os.time(),
+                attachment_id = nil,
+                attachment_filename = nil,
+                used_fallback = false
             }
             SpawnWebhookMessages[key] = state
         end
@@ -1581,18 +1723,18 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         state.count += 1
         state.redeemed_at = os.time()
 
-        -- IMPORTANT: send/update Discord FIRST with no thumbnail.
-        -- Google/image lookup can fail, block, rate-limit, or return junk; none of
-        -- that is allowed to stop the actual webhook notification.
-        local payload = MakeWebhookPayload(
-            spawnName,
-            playerName,
-            state.count,
-            nil,
-            state.redeemed_at
-        )
-
+        -- Existing stacked message: retain the already-uploaded image attachment.
         if state.message_id then
+            local imageRef = state.attachment_filename and ("attachment://" .. state.attachment_filename) or nil
+            local payload = MakeWebhookPayload(
+                spawnName,
+                playerName,
+                state.count,
+                imageRef,
+                state.redeemed_at,
+                state.attachment_id
+            )
+
             local ok, response, err = DoWebhookRequest(requester, {
                 Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(state.message_id),
                 Method = "PATCH",
@@ -1602,73 +1744,78 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
             if ok then
                 AddLog("Updated: " .. spawnName .. " X" .. tostring(state.count))
-            else
-                AddLog("Discord edit failed: " .. tostring(err))
-                state.message_id = nil
-            end
-        end
-
-        if not state.message_id then
-            local ok, response, err = DoWebhookRequest(requester, {
-                Url = DISCORD_WEBHOOK .. "?wait=true",
-                Method = "POST",
-                Headers = {["Content-Type"] = "application/json"},
-                Body = HttpService:JSONEncode(payload)
-            })
-
-            if not ok then
-                AddLog("Discord failed: " .. tostring(err))
-                -- Undo count so a failed attempt does not create fake X2/X3 state.
-                state.count = math.max(0, state.count - 1)
                 return
             end
 
-            local body = response.Body or response.body or ""
-            if type(body) == "string" and body ~= "" then
-                pcall(function()
-                    local decoded = HttpService:JSONDecode(body)
-                    if decoded and decoded.id then
-                        state.message_id = tostring(decoded.id)
-                    end
-                end)
-            end
-
-            AddLog("Sent: " .. spawnName .. " • " .. playerName)
+            state.message_id = nil
+            state.attachment_id = nil
+            state.attachment_filename = nil
         end
 
-        -- Image is optional and happens AFTER the notification exists.
-        -- If Google fails, Discord message remains valid and visible.
-        if state.message_id then
-            task.spawn(function()
-                local imageUrl = CachedSpawnImage(spawnName)
-                if not imageUrl or imageUrl == "" then
-                    return
+        -- First notification (or PATCH recovery):
+        -- download a good Google result and upload the actual bytes to Discord.
+        -- If anything fails, use the user's exact IMAGE NOT FOUND fallback.
+        local imageBytes, ext, mime, usedFallback = GetBestSpawnImageBytes(spawnName)
+        local filename = "brainrot." .. tostring(ext or "png")
+        local imageRef = "attachment://" .. filename
+
+        local payload = MakeWebhookPayload(
+            spawnName,
+            playerName,
+            state.count,
+            imageRef,
+            state.redeemed_at,
+            nil
+        )
+
+        -- Discord needs the attachment metadata in payload_json for multipart uploads.
+        payload.attachments = {
+            {
+                id = 0,
+                filename = filename
+            }
+        }
+
+        local ok, response, err = PostWebhookWithImage(
+            requester,
+            payload,
+            imageBytes,
+            filename,
+            mime
+        )
+
+        if not ok then
+            AddLog("Discord failed: " .. tostring(err))
+            state.count = math.max(0, state.count - 1)
+            return
+        end
+
+        local body = response and (response.Body or response.body) or ""
+        if type(body) == "string" and body ~= "" then
+            pcall(function()
+                local decoded = HttpService:JSONDecode(body)
+
+                if decoded and decoded.id then
+                    state.message_id = tostring(decoded.id)
                 end
 
-                -- Only accept ordinary HTTP(S) image URLs.
-                if not imageUrl:match("^https?://") then
-                    return
-                end
-
-                local imagePayload = MakeWebhookPayload(
-                    spawnName,
-                    playerName,
-                    state.count,
-                    imageUrl,
-                    state.redeemed_at
-                )
-
-                local ok = DoWebhookRequest(requester, {
-                    Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(state.message_id),
-                    Method = "PATCH",
-                    Headers = {["Content-Type"] = "application/json"},
-                    Body = HttpService:JSONEncode(imagePayload)
-                })
-
-                if ok then
-                    AddLog("Discord image added: " .. spawnName)
+                if decoded and type(decoded.attachments) == "table" and decoded.attachments[1] then
+                    local attachment = decoded.attachments[1]
+                    state.attachment_id = tostring(attachment.id or "0")
+                    state.attachment_filename = tostring(attachment.filename or filename)
+                else
+                    state.attachment_id = "0"
+                    state.attachment_filename = filename
                 end
             end)
+        end
+
+        state.used_fallback = usedFallback == true
+
+        if usedFallback then
+            AddLog("Sent: " .. spawnName .. " • fallback image")
+        else
+            AddLog("Sent: " .. spawnName .. " • image attached")
         end
     end
 
@@ -2495,7 +2642,7 @@ local function HandlePopup(obj)
         Loading.Visible = false
     end)
 
-    print("CodeSniper V43 loaded - cleaner logs + fixed Discord photos")
+    print("CodeSniper V44 loaded - Discord image attachments + fallback")
 
 end
 
