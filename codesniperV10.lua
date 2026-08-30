@@ -1790,7 +1790,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         state.count += 1
         state.redeemed_at = os.time()
 
-        -- Existing stacked redemption: keep the image already attached.
+        -- Existing stacked redemption.
         if state.message_id then
             local imageRef = nil
             if state.attachment_filename then
@@ -1823,85 +1823,11 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             state.attachment_filename = nil
         end
 
-        -- GET THE IMAGE BEFORE CREATING THE DISCORD MESSAGE.
-        -- If search/download fails this function ALWAYS gives the exact
-        -- embedded IMAGE NOT FOUND PNG.
-        local imageBytes, ext, mime, usedFallback = GetBestSpawnImageBytes(spawnName)
-
-        if not imageBytes or imageBytes == "" then
-            imageBytes = IMAGE_NOT_FOUND_BYTES
-            ext = "png"
-            mime = "image/png"
-            usedFallback = true
-        end
-
-        ext = tostring(ext or "png")
-        mime = tostring(mime or "image/png")
-        local filename = "brainrot." .. ext
-
-        -- Discord attachment image in the SAME initial message.
-        local payload = MakeWebhookPayload(
-            spawnName,
-            playerName,
-            state.count,
-            "attachment://" .. filename,
-            state.redeemed_at,
-            nil
-        )
-
-        -- For a NEW multipart webhook, Discord accepts file id 0.
-        payload.attachments = {
-            {
-                id = 0,
-                filename = filename
-            }
-        }
-
-        local body, contentType = BuildMultipartBody(
-            payload,
-            imageBytes,
-            filename,
-            mime
-        )
-
-        local ok, response, err = DoWebhookRequest(requester, {
-            Url = DISCORD_WEBHOOK .. "?wait=true",
-            Method = "POST",
-            Headers = {
-                ["Content-Type"] = contentType
-            },
-            Body = body
-        })
-
-        if ok then
-            local responseBody = response and (response.Body or response.body) or ""
-            if type(responseBody) == "string" and responseBody ~= "" then
-                pcall(function()
-                    local decoded = HttpService:JSONDecode(responseBody)
-
-                    if decoded and decoded.id then
-                        state.message_id = tostring(decoded.id)
-                    end
-
-                    if decoded and type(decoded.attachments) == "table" and decoded.attachments[1] then
-                        local attachment = decoded.attachments[1]
-                        state.attachment_id = tostring(attachment.id or "0")
-                        state.attachment_filename = tostring(attachment.filename or filename)
-                    else
-                        state.attachment_id = "0"
-                        state.attachment_filename = filename
-                    end
-                end)
-            end
-
-            AddLog("Sent: " .. spawnName)
-            return
-        end
-
-        -- Some executors cannot transmit multipart/binary request bodies.
-        -- NEVER lose the redemption notification because of that.
-        -- Try a normal Discord message as a final fallback.
-        local jsonPayload = MakeWebhookPayload(
+        ----------------------------------------------------------------
+        -- STEP 1: SEND MESSAGE IMMEDIATELY. NOTHING IMAGE-RELATED RUNS
+        -- BEFORE THIS REQUEST.
+        ----------------------------------------------------------------
+        local initialPayload = MakeWebhookPayload(
             spawnName,
             playerName,
             state.count,
@@ -1910,20 +1836,20 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             nil
         )
 
-        local jsonOk, jsonResponse, jsonErr = DoWebhookRequest(requester, {
+        local ok, response, err = DoWebhookRequest(requester, {
             Url = DISCORD_WEBHOOK .. "?wait=true",
             Method = "POST",
             Headers = {["Content-Type"] = "application/json"},
-            Body = HttpService:JSONEncode(jsonPayload)
+            Body = HttpService:JSONEncode(initialPayload)
         })
 
-        if not jsonOk then
-            AddLog("Discord failed: " .. tostring(jsonErr or err))
+        if not ok then
+            AddLog("Discord failed: " .. tostring(err))
             state.count = math.max(0, state.count - 1)
             return
         end
 
-        local responseBody = jsonResponse and (jsonResponse.Body or jsonResponse.body) or ""
+        local responseBody = response and (response.Body or response.body) or ""
         if type(responseBody) == "string" and responseBody ~= "" then
             pcall(function()
                 local decoded = HttpService:JSONDecode(responseBody)
@@ -1934,7 +1860,125 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         end
 
         AddLog("Sent: " .. spawnName)
-        AddLog("Executor blocked image upload")
+
+        ----------------------------------------------------------------
+        -- STEP 2: IMAGE WORK IS ASYNC. IT CAN FAIL/HANG WITHOUT EVER
+        -- PREVENTING THE MESSAGE ABOVE.
+        ----------------------------------------------------------------
+        if not state.message_id then
+            return
+        end
+
+        task.spawn(function()
+            local imageBytes, ext, mime, usedFallback
+
+            local imageOk = pcall(function()
+                imageBytes, ext, mime, usedFallback = GetBestSpawnImageBytes(spawnName)
+            end)
+
+            -- Exact embedded IMAGE NOT FOUND fallback.
+            if not imageOk or not imageBytes or imageBytes == "" then
+                imageBytes = IMAGE_NOT_FOUND_BYTES
+                ext = "png"
+                mime = "image/png"
+                usedFallback = true
+            end
+
+            ext = tostring(ext or "png")
+            mime = tostring(mime or "image/png")
+            local filename = "brainrot." .. ext
+
+            local imagePayload = MakeWebhookPayload(
+                spawnName,
+                playerName,
+                state.count,
+                "attachment://" .. filename,
+                state.redeemed_at,
+                nil
+            )
+
+            imagePayload.attachments = {
+                {
+                    id = 0,
+                    filename = filename
+                }
+            }
+
+            local multipartBody, contentType = BuildMultipartBody(
+                imagePayload,
+                imageBytes,
+                filename,
+                mime
+            )
+
+            local patchOk, patchResponse = DoWebhookRequest(requester, {
+                Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(state.message_id),
+                Method = "PATCH",
+                Headers = {
+                    ["Content-Type"] = contentType
+                },
+                Body = multipartBody
+            })
+
+            if not patchOk then
+                -- Some executors reject multipart PATCH.
+                -- Try a NEW multipart POST containing the image so the
+                -- picture still has a chance to reach Discord.
+                local imageOnlyPayload = {
+                    username = WEBHOOK_USERNAME,
+                    avatar_url = CODE_SNIPER_AVATAR,
+                    embeds = {
+                        {
+                            image = {url = "attachment://" .. filename},
+                            footer = {text = "FTX Sniper"}
+                        }
+                    },
+                    attachments = {
+                        {
+                            id = 0,
+                            filename = filename
+                        }
+                    }
+                }
+
+                local postBody, postContentType = BuildMultipartBody(
+                    imageOnlyPayload,
+                    imageBytes,
+                    filename,
+                    mime
+                )
+
+                local postOk = DoWebhookRequest(requester, {
+                    Url = DISCORD_WEBHOOK .. "?wait=true",
+                    Method = "POST",
+                    Headers = {
+                        ["Content-Type"] = postContentType
+                    },
+                    Body = postBody
+                })
+
+                if not postOk then
+                    AddLog("Image upload blocked")
+                end
+
+                return
+            end
+
+            local body = patchResponse and (patchResponse.Body or patchResponse.body) or ""
+            if type(body) == "string" and body ~= "" then
+                pcall(function()
+                    local decoded = HttpService:JSONDecode(body)
+                    if decoded and type(decoded.attachments) == "table" and decoded.attachments[1] then
+                        local attachment = decoded.attachments[1]
+                        state.attachment_id = tostring(attachment.id or "0")
+                        state.attachment_filename = tostring(attachment.filename or filename)
+                    else
+                        state.attachment_id = "0"
+                        state.attachment_filename = filename
+                    end
+                end)
+            end
+        end)
     end
 
     local function RunWebhookQueue()
@@ -2760,7 +2804,7 @@ local function HandlePopup(obj)
         Loading.Visible = false
     end)
 
-    print("CodeSniper V47 loaded - image sent with initial Discord webhook")
+    print("CodeSniper V48 loaded - Discord always sends before image work")
 
 end
 
