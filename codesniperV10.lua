@@ -1720,9 +1720,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             state = {
                 count = 0,
                 message_id = nil,
-                redeemed_at = os.time(),
-                attachment_id = nil,
-                attachment_filename = nil
+                redeemed_at = os.time()
             }
 
             SpawnWebhookMessages[key] = state
@@ -1732,22 +1730,16 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         state.redeemed_at = os.time()
 
         ------------------------------------------------------------
-        -- EXISTING MESSAGE: update it if possible.
+        -- EXISTING MESSAGE: update text immediately.
         ------------------------------------------------------------
         if state.message_id then
-            local existingImage = nil
-
-            if state.attachment_filename then
-                existingImage = "attachment://" .. tostring(state.attachment_filename)
-            end
-
             local updatePayload = MakeWebhookPayload(
                 spawnName,
                 playerName,
                 state.count,
-                existingImage,
+                state.image_url,
                 state.redeemed_at,
-                state.attachment_id
+                nil
             )
 
             local updateOk = DoWebhookRequest(requester, {
@@ -1765,14 +1757,10 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             end
 
             state.message_id = nil
-            state.attachment_id = nil
-            state.attachment_filename = nil
         end
 
         ------------------------------------------------------------
-        -- NEW MESSAGE: SEND THIS FIRST.
-        -- NO GOOGLE REQUEST, IMAGE DOWNLOAD OR MULTIPART REQUEST
-        -- IS ALLOWED TO RUN BEFORE THIS JSON WEBHOOK.
+        -- SEND TEXT FIRST. IMAGE SEARCH CANNOT BLOCK THIS.
         ------------------------------------------------------------
         local initialPayload = MakeWebhookPayload(
             spawnName,
@@ -1813,88 +1801,49 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         AddLog("Sent: " .. spawnName)
 
         ------------------------------------------------------------
-        -- IMAGE WORK STARTS ONLY AFTER DISCORD ALREADY RECEIVED TEXT.
+        -- IMAGE: DIRECT URL + JSON PATCH ONLY.
+        -- NO multipart, NO binary upload.
         ------------------------------------------------------------
         if not state.message_id then
             return
         end
 
         task.spawn(function()
-            local imageBytes, ext, mime
+            local imageUrl = nil
 
-            local imageOk = pcall(function()
-                local imageUrl = GetSpawnImageUrl(spawnName)
-
-                if imageUrl then
-                    imageBytes, ext, mime = DownloadImageBytes(imageUrl)
-                end
+            local ok = pcall(function()
+                imageUrl = GetSpawnImageUrl(spawnName)
             end)
 
-            if not imageOk or not imageBytes or imageBytes == "" then
-                imageBytes = IMAGE_NOT_FOUND_BYTES
-                ext = "png"
-                mime = "image/png"
+            if not ok or not imageUrl or imageUrl == "" then
+                -- Public fallback path. Put the exact IMAGE NOT FOUND PNG
+                -- in the repo as image_not_found.png.
+                imageUrl =
+                    "https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/image_not_found.png"
             end
 
-            ext = tostring(ext or "png")
-            mime = tostring(mime or "image/png")
-
-            local filename = "brainrot." .. ext
+            state.image_url = imageUrl
 
             local imagePayload = MakeWebhookPayload(
                 spawnName,
                 playerName,
                 state.count,
-                "attachment://" .. filename,
+                imageUrl,
                 state.redeemed_at,
                 nil
             )
 
-            imagePayload.attachments = {
-                {
-                    id = 0,
-                    filename = filename
-                }
-            }
-
-            local multipartBody, contentType = BuildMultipartBody(
-                imagePayload,
-                imageBytes,
-                filename,
-                mime
-            )
-
-            local patchOk, patchResponse = DoWebhookRequest(requester, {
+            local patchOk = DoWebhookRequest(requester, {
                 Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(state.message_id),
                 Method = "PATCH",
                 Headers = {
-                    ["Content-Type"] = contentType
+                    ["Content-Type"] = "application/json"
                 },
-                Body = multipartBody
+                Body = HttpService:JSONEncode(imagePayload)
             })
 
             if not patchOk then
-                AddLog("Image upload blocked")
-                return
-            end
-
-            local responseBody =
-                patchResponse and (patchResponse.Body or patchResponse.body) or ""
-
-            if type(responseBody) == "string" and responseBody ~= "" then
-                pcall(function()
-                    local decoded = HttpService:JSONDecode(responseBody)
-
-                    if decoded
-                    and type(decoded.attachments) == "table"
-                    and decoded.attachments[1] then
-                        local attachment = decoded.attachments[1]
-
-                        state.attachment_id = tostring(attachment.id or "0")
-                        state.attachment_filename =
-                            tostring(attachment.filename or filename)
-                    end
-                end)
+                AddLog("Image URL update failed")
             end
         end)
     end
@@ -2722,7 +2671,7 @@ local function HandlePopup(obj)
         Loading.Visible = false
     end)
 
-    print("CodeSniper V53 loaded - restored on-screen message detection")
+    print("CodeSniper V54 loaded - direct image URL embeds")
 
 end
 
