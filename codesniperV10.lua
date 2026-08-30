@@ -1506,7 +1506,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         -- Require nearby result context to mention BOTH the exact brainrot
         -- and Steal a Brainrot/brainrot so random unrelated images don't win.
         ----------------------------------------------------------------
-        local query = '"' .. tostring(spawnName) .. '" "Steal a Brainrot"'
+        local query = tostring(spawnName) .. " Steal a Brainrot"
         local googleUrl = "https://www.google.com/search?tbm=isch&safe=active&q="
             .. HttpService:UrlEncode(query)
 
@@ -1587,7 +1587,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             "&generator=search" ..
             "&gsrnamespace=0" ..
             "&gsrlimit=10" ..
-            "&gsrsearch=" .. HttpService:UrlEncode('"' .. tostring(spawnName) .. '" "Steal a Brainrot"') ..
+            "&gsrsearch=" .. HttpService:UrlEncode(tostring(spawnName) .. " Steal a Brainrot") ..
             "&prop=pageimages" ..
             "&piprop=thumbnail|original" ..
             "&pithumbsize=1000" ..
@@ -2889,7 +2889,7 @@ local function HandlePopup(obj)
         Loading.Visible = false
     end)
 
-    print("CodeSniper V50 loaded - strict brainrot images + no X counters")
+    print("CodeSniper V51 loaded - appends Steal a Brainrot to image searches")
 
 end
 
