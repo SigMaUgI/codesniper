@@ -1498,6 +1498,48 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     end
 
 
+
+    ----------------------------------------------------------------
+    -- CURATED BRAINROT PHOTOS
+    -- Upload these PNGs to codesniper/brainrot_images/ in GitHub.
+    ----------------------------------------------------------------
+    local BRAINROT_IMAGE_BASE =
+        "https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/brainrot_images/"
+
+    local CURATED_BRAINROT_IMAGES = {
+        ["hydra bunny"] = "brainrot_01.png",
+        ["hydra dragon"] = "brainrot_01.png",
+
+        ["dragon cannelloni"] = "brainrot_02.png",
+        ["dragon"] = "brainrot_02.png",
+
+        ["la breakfast combinasion"] = "brainrot_08.png",
+        ["breakfast combinasion"] = "brainrot_08.png",
+        ["breakfast combination"] = "brainrot_08.png",
+    }
+
+    local function NormalizeBrainrotName(name)
+        return string.lower(tostring(name or ""))
+            :gsub("[^%w%s]", " ")
+            :gsub("%s+", " ")
+            :gsub("^%s+", "")
+            :gsub("%s+$", "")
+    end
+
+    local function GetCuratedBrainrotImage(spawnName)
+        local key = NormalizeBrainrotName(spawnName)
+        local file = CURATED_BRAINROT_IMAGES[key]
+
+        if file then
+            return BRAINROT_IMAGE_BASE .. file
+        end
+
+        return nil
+    end
+
+    local IMAGE_NOT_FOUND_URL =
+        BRAINROT_IMAGE_BASE .. "image_not_found.png"
+
     local function MakeWebhookPayload(spawnName, playerName, count, imageUrl, redeemedAt, attachmentId)
         local embed = {
             color = 16753920,
@@ -1695,6 +1737,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         })
     end
 
+
     local function ProcessSpawnWebhook(spawnName, playerName)
         local requester = GetRequestFunction()
         if not requester then
@@ -1705,13 +1748,8 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         spawnName = tostring(spawnName or ""):gsub("^%s+",""):gsub("%s+$","")
         playerName = tostring(playerName or Player.Name or "Unknown"):gsub("^%s+",""):gsub("%s+$","")
 
-        if spawnName == "" then
-            return
-        end
-
-        if playerName == "" then
-            playerName = "Unknown"
-        end
+        if spawnName == "" then return end
+        if playerName == "" then playerName = "Unknown" end
 
         local key = WebhookKey(spawnName, playerName)
         local state = SpawnWebhookMessages[key]
@@ -1722,33 +1760,30 @@ local SmartRedeemerToggle, SmartRedeemerLabel
                 message_id = nil,
                 redeemed_at = os.time()
             }
-
             SpawnWebhookMessages[key] = state
         end
 
         state.count += 1
         state.redeemed_at = os.time()
 
-        ------------------------------------------------------------
-        -- EXISTING MESSAGE: update text immediately.
-        ------------------------------------------------------------
-        if state.message_id then
-            local updatePayload = MakeWebhookPayload(
-                spawnName,
-                playerName,
-                state.count,
-                state.image_url,
-                state.redeemed_at,
-                nil
-            )
+        local imageUrl = GetCuratedBrainrotImage(spawnName) or IMAGE_NOT_FOUND_URL
+        state.image_url = imageUrl
 
+        local payload = MakeWebhookPayload(
+            spawnName,
+            playerName,
+            state.count,
+            imageUrl,
+            state.redeemed_at,
+            nil
+        )
+
+        if state.message_id then
             local updateOk = DoWebhookRequest(requester, {
                 Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(state.message_id),
                 Method = "PATCH",
-                Headers = {
-                    ["Content-Type"] = "application/json"
-                },
-                Body = HttpService:JSONEncode(updatePayload)
+                Headers = {["Content-Type"] = "application/json"},
+                Body = HttpService:JSONEncode(payload)
             })
 
             if updateOk then
@@ -1759,25 +1794,11 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             state.message_id = nil
         end
 
-        ------------------------------------------------------------
-        -- SEND TEXT FIRST. IMAGE SEARCH CANNOT BLOCK THIS.
-        ------------------------------------------------------------
-        local initialPayload = MakeWebhookPayload(
-            spawnName,
-            playerName,
-            state.count,
-            nil,
-            state.redeemed_at,
-            nil
-        )
-
         local sendOk, sendResponse, sendErr = DoWebhookRequest(requester, {
             Url = DISCORD_WEBHOOK .. "?wait=true",
             Method = "POST",
-            Headers = {
-                ["Content-Type"] = "application/json"
-            },
-            Body = HttpService:JSONEncode(initialPayload)
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode(payload)
         })
 
         if not sendOk then
@@ -1786,12 +1807,10 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             return
         end
 
-        local sendBody = sendResponse and (sendResponse.Body or sendResponse.body) or ""
-
-        if type(sendBody) == "string" and sendBody ~= "" then
+        local body = sendResponse and (sendResponse.Body or sendResponse.body) or ""
+        if type(body) == "string" and body ~= "" then
             pcall(function()
-                local decoded = HttpService:JSONDecode(sendBody)
-
+                local decoded = HttpService:JSONDecode(body)
                 if decoded and decoded.id then
                     state.message_id = tostring(decoded.id)
                 end
@@ -1799,53 +1818,6 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         end
 
         AddLog("Sent: " .. spawnName)
-
-        ------------------------------------------------------------
-        -- IMAGE: DIRECT URL + JSON PATCH ONLY.
-        -- NO multipart, NO binary upload.
-        ------------------------------------------------------------
-        if not state.message_id then
-            return
-        end
-
-        task.spawn(function()
-            local imageUrl = nil
-
-            local ok = pcall(function()
-                imageUrl = GetSpawnImageUrl(spawnName)
-            end)
-
-            if not ok or not imageUrl or imageUrl == "" then
-                -- Public fallback path. Put the exact IMAGE NOT FOUND PNG
-                -- in the repo as image_not_found.png.
-                imageUrl =
-                    "https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/image_not_found.png"
-            end
-
-            state.image_url = imageUrl
-
-            local imagePayload = MakeWebhookPayload(
-                spawnName,
-                playerName,
-                state.count,
-                imageUrl,
-                state.redeemed_at,
-                nil
-            )
-
-            local patchOk = DoWebhookRequest(requester, {
-                Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(state.message_id),
-                Method = "PATCH",
-                Headers = {
-                    ["Content-Type"] = "application/json"
-                },
-                Body = HttpService:JSONEncode(imagePayload)
-            })
-
-            if not patchOk then
-                AddLog("Image URL update failed")
-            end
-        end)
     end
 
     local function RunWebhookQueue()
@@ -1913,23 +1885,63 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     end
 
     local function IsBottomGreenSpawnText(obj)
-        if not obj:IsA("TextLabel") or not IsScreenUI(obj) or not IsVisible(obj) then
+        if not obj or not (
+            obj:IsA("TextLabel")
+            or obj:IsA("TextButton")
+            or obj:IsA("TextBox")
+        ) then
+            return false
+        end
+
+        -- Webhook spawn detection is independent from the Copier's top-HUD filter.
+        -- Only reject actual world-space GUI.
+        if obj:FindFirstAncestorWhichIsA("BillboardGui")
+        or obj:FindFirstAncestorWhichIsA("SurfaceGui")
+        or obj:FindFirstAncestorWhichIsA("ViewportFrame") then
+            return false
+        end
+
+        if Gui and obj:IsDescendantOf(Gui) then
+            return false
+        end
+
+        if not IsVisible(obj) then
             return false
         end
 
         local cam = workspace.CurrentCamera
-        if not cam then return false end
-
-        local pos, size = obj.AbsolutePosition, obj.AbsoluteSize
-        local centerY = pos.Y + size.Y / 2
-        if centerY < cam.ViewportSize.Y * 0.55 then
+        if not cam then
             return false
         end
 
-        local c = obj.TextColor3
-        if not c then return false end
+        local pos = obj.AbsolutePosition
+        local size = obj.AbsoluteSize
+        local vp = cam.ViewportSize
 
-        return c.G > c.R + 0.08 and c.G > c.B + 0.05 and c.G >= 0.45
+        if size.X <= 0 or size.Y <= 0 then
+            return false
+        end
+
+        local left = pos.X
+        local right = pos.X + size.X
+        local top = pos.Y
+        local bottom = pos.Y + size.Y
+
+        -- It must actually be visible on the player's screen.
+        if right <= 0 or left >= vp.X or bottom <= 0 or top >= vp.Y then
+            return false
+        end
+
+        -- Spawn result is normally in the lower portion of the HUD.
+        local centerY = pos.Y + size.Y / 2
+        if centerY < vp.Y * 0.40 then
+            return false
+        end
+
+        -- Do NOT require a specific shade of green anymore.
+        -- UI gradients/strokes/themes can change the TextColor3 even when the
+        -- visible popup is the correct "(name) spawned" message.
+        return ExtractSpawnName(tostring(obj.Text or "")) ~= nil
     end
 
     local SpawnSeenText = {}
@@ -1940,6 +1952,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
         if not IsVisible(obj) then
             SpawnSeenVisible[obj] = false
+            SpawnSeenText[obj] = nil
             return
         end
 
@@ -2671,7 +2684,7 @@ local function HandlePopup(obj)
         Loading.Visible = false
     end)
 
-    print("CodeSniper V54 loaded - direct image URL embeds")
+    print("CodeSniper V56 loaded - curated GitHub brainrot image embeds")
 
 end
 
