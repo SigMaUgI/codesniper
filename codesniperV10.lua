@@ -371,20 +371,84 @@ local SmartAttemptId = 0
     AddAnimatedGradient(LoadingBar, 0.025)
 
     local function IsScreenUI(obj)
-        if obj:FindFirstAncestorWhichIsA("BillboardGui") then return false end
-        if obj:FindFirstAncestorWhichIsA("SurfaceGui") then return false end
-        local sg = obj:FindFirstAncestorWhichIsA("ScreenGui")
-        return sg ~= nil and sg ~= Gui
+        if not obj or not obj:IsA("GuiObject") then
+            return false
+        end
+
+        -- NEVER capture text that exists in the 3D world.
+        -- BillboardGui = floating text over players/objects.
+        -- SurfaceGui   = text drawn on a world part.
+        if obj:FindFirstAncestorWhichIsA("BillboardGui") then
+            return false
+        end
+
+        if obj:FindFirstAncestorWhichIsA("SurfaceGui") then
+            return false
+        end
+
+        -- Do not treat labels rendered inside a 3D ViewportFrame as HUD text.
+        if obj:FindFirstAncestorWhichIsA("ViewportFrame") then
+            return false
+        end
+
+        -- Copier only watches actual 2D ScreenGui HUDs inside the local PlayerGui.
+        local screenGui = obj:FindFirstAncestorWhichIsA("ScreenGui")
+        if not screenGui then
+            return false
+        end
+
+        if screenGui == Gui then
+            return false
+        end
+
+        if not screenGui:IsDescendantOf(PlayerGui) then
+            return false
+        end
+
+        -- ScreenGui itself must be enabled.
+        if screenGui.Enabled == false then
+            return false
+        end
+
+        return true
     end
 
     local function IsTopArea(obj)
-        if not obj:IsA("TextLabel") or not IsScreenUI(obj) or not IsVisible(obj) then return false end
+        if not obj:IsA("TextLabel") or not IsScreenUI(obj) or not IsVisible(obj) then
+            return false
+        end
+
         local cam = workspace.CurrentCamera
-        if not cam then return false end
+        if not cam then
+            return false
+        end
+
         local vp = cam.ViewportSize
-        local p, s = obj.AbsolutePosition, obj.AbsoluteSize
-        local cx, cy = p.X + s.X/2, p.Y + s.Y/2
-        return cx >= 0 and cx <= vp.X and cy >= 0 and cy <= vp.Y * 0.42
+        local p = obj.AbsolutePosition
+        local s = obj.AbsoluteSize
+
+        if s.X <= 0 or s.Y <= 0 then
+            return false
+        end
+
+        -- Require the actual GUI rectangle to intersect the visible screen.
+        local left = p.X
+        local right = p.X + s.X
+        local top = p.Y
+        local bottom = p.Y + s.Y
+
+        if right <= 0 or left >= vp.X or bottom <= 0 or top >= vp.Y then
+            return false
+        end
+
+        local cx = p.X + s.X / 2
+        local cy = p.Y + s.Y / 2
+
+        -- CodeSniper only copies the top HUD message region.
+        return cx >= 0
+            and cx <= vp.X
+            and cy >= 0
+            and cy <= vp.Y * 0.42
     end
 
     -- Codes > Codes > CodeRedeem (Frame) > real TextBox
@@ -1726,11 +1790,11 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         state.count += 1
         state.redeemed_at = os.time()
 
-        -- STACKED REDEEM: update existing message immediately.
+        -- Existing stacked redemption: keep the image already attached.
         if state.message_id then
             local imageRef = nil
             if state.attachment_filename then
-                imageRef = "attachment://" .. state.attachment_filename
+                imageRef = "attachment://" .. tostring(state.attachment_filename)
             end
 
             local payload = MakeWebhookPayload(
@@ -1742,7 +1806,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
                 state.attachment_id
             )
 
-            local ok, response, err = DoWebhookRequest(requester, {
+            local ok = DoWebhookRequest(requester, {
                 Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(state.message_id),
                 Method = "PATCH",
                 Headers = {["Content-Type"] = "application/json"},
@@ -1754,113 +1818,71 @@ local SmartRedeemerToggle, SmartRedeemerLabel
                 return
             end
 
-            -- Old Discord message could not be edited. Make a fresh one.
             state.message_id = nil
             state.attachment_id = nil
             state.attachment_filename = nil
         end
 
-        -- SEND THE DISCORD MESSAGE FIRST.
-        -- Image searching/downloading is NEVER allowed to block the notification.
-        local initialPayload = MakeWebhookPayload(
+        -- GET THE IMAGE BEFORE CREATING THE DISCORD MESSAGE.
+        -- If search/download fails this function ALWAYS gives the exact
+        -- embedded IMAGE NOT FOUND PNG.
+        local imageBytes, ext, mime, usedFallback = GetBestSpawnImageBytes(spawnName)
+
+        if not imageBytes or imageBytes == "" then
+            imageBytes = IMAGE_NOT_FOUND_BYTES
+            ext = "png"
+            mime = "image/png"
+            usedFallback = true
+        end
+
+        ext = tostring(ext or "png")
+        mime = tostring(mime or "image/png")
+        local filename = "brainrot." .. ext
+
+        -- Discord attachment image in the SAME initial message.
+        local payload = MakeWebhookPayload(
             spawnName,
             playerName,
             state.count,
-            nil,
+            "attachment://" .. filename,
             state.redeemed_at,
             nil
+        )
+
+        -- For a NEW multipart webhook, Discord accepts file id 0.
+        payload.attachments = {
+            {
+                id = 0,
+                filename = filename
+            }
+        }
+
+        local body, contentType = BuildMultipartBody(
+            payload,
+            imageBytes,
+            filename,
+            mime
         )
 
         local ok, response, err = DoWebhookRequest(requester, {
             Url = DISCORD_WEBHOOK .. "?wait=true",
             Method = "POST",
-            Headers = {["Content-Type"] = "application/json"},
-            Body = HttpService:JSONEncode(initialPayload)
+            Headers = {
+                ["Content-Type"] = contentType
+            },
+            Body = body
         })
 
-        if not ok then
-            AddLog("Discord failed: " .. tostring(err))
-            state.count = math.max(0, state.count - 1)
-            return
-        end
-
-        local responseBody = response and (response.Body or response.body) or ""
-        if type(responseBody) == "string" and responseBody ~= "" then
-            pcall(function()
-                local decoded = HttpService:JSONDecode(responseBody)
-                if decoded and decoded.id then
-                    state.message_id = tostring(decoded.id)
-                end
-            end)
-        end
-
-        AddLog("Sent: " .. spawnName)
-
-        -- If the executor didn't return the Discord message id, the notification
-        -- is still sent; we just can't edit that specific message afterward.
-        if not state.message_id then
-            return
-        end
-
-        -- IMAGE WORK RUNS AFTER THE MESSAGE EXISTS.
-        task.spawn(function()
-            -- This always returns bytes:
-            -- good searched brainrot image OR exact IMAGE NOT FOUND fallback.
-            local imageBytes, ext, mime, usedFallback = GetBestSpawnImageBytes(spawnName)
-
-            if not imageBytes or imageBytes == "" then
-                -- Last-resort safety: exact embedded fallback.
-                imageBytes = IMAGE_NOT_FOUND_BYTES
-                ext = "png"
-                mime = "image/png"
-                usedFallback = true
-            end
-
-            local filename = "brainrot." .. tostring(ext or "png")
-            local imageRef = "attachment://" .. filename
-
-            local imagePayload = MakeWebhookPayload(
-                spawnName,
-                playerName,
-                state.count,
-                imageRef,
-                state.redeemed_at,
-                nil
-            )
-
-            imagePayload.attachments = {
-                {
-                    id = 0,
-                    filename = filename
-                }
-            }
-
-            local multipartBody, contentType = BuildMultipartBody(
-                imagePayload,
-                imageBytes,
-                filename,
-                mime or "image/png"
-            )
-
-            local patchOk, patchResponse, patchErr = DoWebhookRequest(requester, {
-                Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(state.message_id),
-                Method = "PATCH",
-                Headers = {
-                    ["Content-Type"] = contentType
-                },
-                Body = multipartBody
-            })
-
-            if not patchOk then
-                -- Message stays sent even if this executor can't multipart PATCH.
-                AddLog("Image attach failed")
-                return
-            end
-
-            local body = patchResponse and (patchResponse.Body or patchResponse.body) or ""
-            if type(body) == "string" and body ~= "" then
+        if ok then
+            local responseBody = response and (response.Body or response.body) or ""
+            if type(responseBody) == "string" and responseBody ~= "" then
                 pcall(function()
-                    local decoded = HttpService:JSONDecode(body)
+                    local decoded = HttpService:JSONDecode(responseBody)
+
+                    if decoded and decoded.id then
+                        state.message_id = tostring(decoded.id)
+                    end
+
                     if decoded and type(decoded.attachments) == "table" and decoded.attachments[1] then
                         local attachment = decoded.attachments[1]
                         state.attachment_id = tostring(attachment.id or "0")
@@ -1872,12 +1894,47 @@ local SmartRedeemerToggle, SmartRedeemerLabel
                 end)
             end
 
-            if usedFallback then
-                AddLog("Fallback image added")
-            else
-                AddLog("Brainrot image added")
-            end
-        end)
+            AddLog("Sent: " .. spawnName)
+            return
+        end
+
+        -- Some executors cannot transmit multipart/binary request bodies.
+        -- NEVER lose the redemption notification because of that.
+        -- Try a normal Discord message as a final fallback.
+        local jsonPayload = MakeWebhookPayload(
+            spawnName,
+            playerName,
+            state.count,
+            nil,
+            state.redeemed_at,
+            nil
+        )
+
+        local jsonOk, jsonResponse, jsonErr = DoWebhookRequest(requester, {
+            Url = DISCORD_WEBHOOK .. "?wait=true",
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode(jsonPayload)
+        })
+
+        if not jsonOk then
+            AddLog("Discord failed: " .. tostring(jsonErr or err))
+            state.count = math.max(0, state.count - 1)
+            return
+        end
+
+        local responseBody = jsonResponse and (jsonResponse.Body or jsonResponse.body) or ""
+        if type(responseBody) == "string" and responseBody ~= "" then
+            pcall(function()
+                local decoded = HttpService:JSONDecode(responseBody)
+                if decoded and decoded.id then
+                    state.message_id = tostring(decoded.id)
+                end
+            end)
+        end
+
+        AddLog("Sent: " .. spawnName)
+        AddLog("Executor blocked image upload")
     end
 
     local function RunWebhookQueue()
@@ -2703,7 +2760,7 @@ local function HandlePopup(obj)
         Loading.Visible = false
     end)
 
-    print("CodeSniper V45 loaded - instant Discord send + guaranteed fallback")
+    print("CodeSniper V47 loaded - image sent with initial Discord webhook")
 
 end
 
