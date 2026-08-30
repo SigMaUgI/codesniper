@@ -960,7 +960,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         WaitingForCode = false
 
         if SmartRedeemerEnabled then
-            Status.Text = "Smart Redeemer ON - waiting for 3 messages"
+            Status.Text = PrepareEnabled and "Smart ON - waiting for prepare..." or "Smart ON - waiting for message 1/5..."
             Status.TextColor3 = YELLOW
         else
             Status.Text = PrepareEnabled and "Waiting for code..." or "Ready to capture..."
@@ -1062,8 +1062,17 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         SmartRetrying = false
         SmartAttemptId += 1
 
-        -- Forget old captured UI text so a new code can begin cleanly.
+        -- Start fresh WITHOUT immediately re-capturing old messages that are
+        -- still visible on screen at the moment Reset is pressed.
         LastText = {}
+        SpawnSeenText = {}
+        SpawnSeenVisible = {}
+
+        for _, obj in ipairs(PlayerGui:GetDescendants()) do
+            if obj:IsA("TextLabel") and IsScreenUI(obj) then
+                LastText[obj] = CleanText(obj.Text)
+            end
+        end
 
         AllCaptured = {}
         for _, child in ipairs(Scroll:GetChildren()) do
@@ -1198,31 +1207,42 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     -- Prepare phrases
     local TriggerPhrases = {
         "THE CODE IS",
+        "THE CODE'S",
         "THE CODE:",
+        "CODE IS",
+        "CODE'S",
+        "CODE =",
+        "CODE:",
         "USE CODE",
         "USE THE CODE",
         "USE THIS CODE",
-        "OK HERE'S THE CODE",
-        "OK HERES THE CODE",
-        "OK, HERE'S THE CODE",
-        "OK, HERES THE CODE",
+        "USE THIS",
+        "USE:",
         "HERE'S THE CODE",
         "HERES THE CODE",
+        "HERE IS THE CODE",
         "YOUR CODE IS",
         "YOUR CODE:",
-        "CODE IS",
-        "CODE:",
+        "OK HERE'S THE CODE",
+        "OK HERES THE CODE",
+        "OKAY HERE'S THE CODE",
+        "OKAY HERES THE CODE",
+        "OK, HERE'S THE CODE",
+        "OK, HERES THE CODE",
+        "THE REDEEM CODE IS",
         "REDEEM CODE",
         "REDEEM THIS CODE",
+        "REDEEM WITH",
         "ENTER CODE",
+        "ENTER THE CODE",
         "ENTER THIS CODE",
+        "TYPE CODE",
+        "TYPE THE CODE",
         "TYPE THIS CODE",
         "TRY THIS CODE",
         "PUT IN CODE",
+        "PUT THE CODE IN",
         "PUT THIS CODE IN",
-        "USE THIS",
-        "THE REDEEM CODE IS",
-        "REDEEM WITH",
         "CLAIM WITH CODE",
         "CLAIM THIS CODE"
     }
@@ -1241,7 +1261,22 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     end
 
     local function GetRequestFunction()
-        return (syn and syn.request) or http_request or request
+        local candidates = {
+            request,
+            http_request,
+            httprequest,
+            syn and syn.request,
+            http and http.request,
+            fluxus and fluxus.request
+        }
+
+        for _, fn in ipairs(candidates) do
+            if type(fn) == "function" then
+                return fn
+            end
+        end
+
+        return nil
     end
 
     local function GetSpawnImageUrl(spawnName)
@@ -1433,10 +1468,27 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         return image
     end
 
+    local function DoWebhookRequest(requester, options)
+        local ok, response = pcall(function()
+            return requester(options)
+        end)
+
+        if not ok or not response then
+            return false, nil, "REQUEST_FAILED"
+        end
+
+        local status = tonumber(response.StatusCode or response.Status or response.status_code or 0)
+        if status ~= 0 and (status < 200 or status >= 300) then
+            return false, response, "HTTP_" .. tostring(status)
+        end
+
+        return true, response, nil
+    end
+
     local function ProcessSpawnWebhook(spawnName, playerName)
         local requester = GetRequestFunction()
         if not requester then
-            AddLog("Webhook unavailable: request API missing")
+            AddLog("Webhook unavailable: executor has no request()")
             return
         end
 
@@ -1447,71 +1499,108 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
         local key = WebhookKey(spawnName, playerName)
         local state = SpawnWebhookMessages[key]
-        local imageUrl = CachedSpawnImage(spawnName)
 
-        if state and state.message_id then
-            state.count += 1
-            state.redeemed_at = os.time()
-
-            local payload = MakeWebhookPayload(spawnName, playerName, state.count, imageUrl, state.redeemed_at)
-            local ok, response = pcall(function()
-                return requester({
-                    Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(state.message_id),
-                    Method = "PATCH",
-                    Headers = {["Content-Type"] = "application/json"},
-                    Body = HttpService:JSONEncode(payload)
-                })
-            end)
-
-            local status = response and tonumber(response.StatusCode or response.Status or 0) or 0
-            if ok and (status == 0 or (status >= 200 and status < 300)) then
-                AddLog("Webhook updated: " .. spawnName .. " X" .. tostring(state.count) .. " • " .. playerName)
-                return
-            end
-
-            -- If the old Discord message cannot be edited anymore, create a new one.
-            state.message_id = nil
-        end
-
-        local count = state and state.count or 1
         if not state then
-            state = {count = 1, message_id = nil, redeemed_at = os.time()}
+            state = {
+                count = 0,
+                message_id = nil,
+                redeemed_at = os.time()
+            }
             SpawnWebhookMessages[key] = state
-            count = 1
         end
 
-        local payload = MakeWebhookPayload(spawnName, playerName, count, imageUrl, state.redeemed_at or os.time())
-        local ok, response = pcall(function()
-            return requester({
+        state.count += 1
+        state.redeemed_at = os.time()
+
+        -- IMPORTANT: send/update Discord FIRST with no thumbnail.
+        -- Google/image lookup can fail, block, rate-limit, or return junk; none of
+        -- that is allowed to stop the actual webhook notification.
+        local payload = MakeWebhookPayload(
+            spawnName,
+            playerName,
+            state.count,
+            nil,
+            state.redeemed_at
+        )
+
+        if state.message_id then
+            local ok, response, err = DoWebhookRequest(requester, {
+                Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(state.message_id),
+                Method = "PATCH",
+                Headers = {["Content-Type"] = "application/json"},
+                Body = HttpService:JSONEncode(payload)
+            })
+
+            if ok then
+                AddLog("Discord updated: " .. spawnName .. " X" .. tostring(state.count))
+            else
+                AddLog("Discord edit failed: " .. tostring(err))
+                state.message_id = nil
+            end
+        end
+
+        if not state.message_id then
+            local ok, response, err = DoWebhookRequest(requester, {
                 Url = DISCORD_WEBHOOK .. "?wait=true",
                 Method = "POST",
                 Headers = {["Content-Type"] = "application/json"},
                 Body = HttpService:JSONEncode(payload)
             })
-        end)
 
-        if not ok or not response then
-            AddLog("Webhook send failed: " .. spawnName)
-            return
+            if not ok then
+                AddLog("Discord failed: " .. tostring(err))
+                -- Undo count so a failed attempt does not create fake X2/X3 state.
+                state.count = math.max(0, state.count - 1)
+                return
+            end
+
+            local body = response.Body or response.body or ""
+            if type(body) == "string" and body ~= "" then
+                pcall(function()
+                    local decoded = HttpService:JSONDecode(body)
+                    if decoded and decoded.id then
+                        state.message_id = tostring(decoded.id)
+                    end
+                end)
+            end
+
+            AddLog("Discord sent: " .. spawnName .. " • " .. playerName)
         end
 
-        local status = tonumber(response.StatusCode or response.Status or 0)
-        if status ~= 0 and (status < 200 or status >= 300) then
-            AddLog("Webhook HTTP " .. tostring(status) .. ": " .. spawnName)
-            return
-        end
+        -- Image is optional and happens AFTER the notification exists.
+        -- If Google fails, Discord message remains valid and visible.
+        if state.message_id then
+            task.spawn(function()
+                local imageUrl = CachedSpawnImage(spawnName)
+                if not imageUrl or imageUrl == "" then
+                    return
+                end
 
-        local body = response.Body or response.body
-        if type(body) == "string" and body ~= "" then
-            pcall(function()
-                local decoded = HttpService:JSONDecode(body)
-                if decoded and decoded.id then
-                    state.message_id = tostring(decoded.id)
+                -- Only accept ordinary HTTP(S) image URLs.
+                if not imageUrl:match("^https?://") then
+                    return
+                end
+
+                local imagePayload = MakeWebhookPayload(
+                    spawnName,
+                    playerName,
+                    state.count,
+                    imageUrl,
+                    state.redeemed_at
+                )
+
+                local ok = DoWebhookRequest(requester, {
+                    Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(state.message_id),
+                    Method = "PATCH",
+                    Headers = {["Content-Type"] = "application/json"},
+                    Body = HttpService:JSONEncode(imagePayload)
+                })
+
+                if ok then
+                    AddLog("Discord image added: " .. spawnName)
                 end
             end)
         end
-
-        AddLog("Webhook sent: " .. spawnName .. " • " .. playerName)
     end
 
     local function RunWebhookQueue()
@@ -1519,12 +1608,22 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         WebhookQueueRunning = true
 
         task.spawn(function()
-            while #WebhookQueue > 0 do
+            while true do
                 local job = table.remove(WebhookQueue, 1)
+
+                if not job then
+                    WebhookQueueRunning = false
+
+                    -- Cover the tiny race where a job arrived as we were stopping.
+                    if #WebhookQueue > 0 then
+                        RunWebhookQueue()
+                    end
+                    return
+                end
+
                 ProcessSpawnWebhook(job.spawnName, job.playerName)
-                task.wait(0.15)
+                task.wait(0.20)
             end
-            WebhookQueueRunning = false
         end)
     end
 
@@ -1588,24 +1687,37 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         return c.G > c.R + 0.08 and c.G > c.B + 0.05 and c.G >= 0.45
     end
 
-    local RecentSpawnSignals = {}
+    local SpawnSeenText = {}
+    local SpawnSeenVisible = {}
 
     local function HandleSpawnResult(obj)
-        if not IsBottomGreenSpawnText(obj) then return end
+        if not obj:IsA("TextLabel") then return end
+
+        if not IsVisible(obj) then
+            SpawnSeenVisible[obj] = false
+            return
+        end
+
+        if not IsBottomGreenSpawnText(obj) then
+            return
+        end
 
         local raw = tostring(obj.Text or "")
         local spawnName = ExtractSpawnName(raw)
-        if not spawnName then return end
-
-        -- Text and Visible can fire for the same popup. Debounce only briefly,
-        -- so the exact same spawn can still be detected again on later redeems.
-        local signalKey = string.lower(raw)
-        local now = os.clock()
-        local previous = RecentSpawnSignals[signalKey]
-        if previous and now - previous < 0.85 then
+        if not spawnName then
             return
         end
-        RecentSpawnSignals[signalKey] = now
+
+        local normalized = string.lower(raw)
+
+        -- Process once for this visible popup/text. It becomes eligible again
+        -- after Visible=false or after its Text changes to something else.
+        if SpawnSeenVisible[obj] and SpawnSeenText[obj] == normalized then
+            return
+        end
+
+        SpawnSeenVisible[obj] = true
+        SpawnSeenText[obj] = normalized
 
         local recipientName = Player.Name
         AddLog("Spawn detected: " .. spawnName .. " • " .. recipientName)
@@ -2003,7 +2115,10 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             -- EVERY piece: 1, 2, 3, 4, then 5.
             local typed = TypeIntoCodeBox()
             if typed then
-                ClickSubmit()
+                for _ = 1, 3 do
+                    ClickSubmit()
+                    task.wait()
+                end
                 AddLog("Smart redeem attempt " .. tostring(count) .. "/5")
             else
                 AddLog("Smart write retry needed at " .. tostring(count) .. "/5")
@@ -2086,35 +2201,80 @@ local function HandlePopup(obj)
         end
 
         if not CopierEnabled then return end
+
         local text = CleanText(obj.Text)
-        if IsBadText(text) or LastText[obj] == text then return end
+
+        -- Always update the cache, including blank/placeholder states.
+        -- This is important because the game reuses the SAME TextLabel.
+        if LastText[obj] == text then
+            return
+        end
         LastText[obj] = text
 
-        if not PrepareEnabled then AddCode(text); return end
+        if IsBadText(text) then
+            return
+        end
+
+        if not PrepareEnabled then
+            AddCode(text)
+            return
+        end
 
         if not WaitingForCode then
-            local phrase,_,b = FindTrigger(text)
-            if not phrase then return end
+            local phrase, _, b = FindTrigger(text)
+            if not phrase then
+                return
+            end
 
+            -- A new prepare trigger always starts a FRESH code.
+            CurrentMessages = {}
             WaitingForCode = true
-            Status.Text = "Code detected..."
+
+            local box = FindCodeBox()
+            if box then
+                pcall(function()
+                    box.Text = ""
+                    box.CursorPosition = 1
+                    box.SelectionStart = -1
+                end)
+            end
+
+            AddLog("Prepare detected: " .. phrase)
+            Status.Text = SmartRedeemerEnabled
+                and "Prepared - waiting for message 1/5..."
+                or "Prepared - waiting for code..."
             Status.TextColor3 = GREEN
 
-            -- If the trigger and the first code piece are in the same message,
-            -- immediately capture everything after the trigger phrase.
-            local remaining = text:sub(b+1):gsub("^[%s:%-%.]+","")
-
+            -- Capture code text included in the same line after the trigger.
+            local remaining = text:sub(b + 1):gsub("^[%s:%-=%.]+", "")
             if remaining ~= "" and remaining ~= "..." and remaining ~= "…" then
                 AddCode(remaining)
-            elseif SmartRedeemerEnabled then
-                Status.Text = "Smart Redeemer waiting for code messages..."
-                Status.TextColor3 = YELLOW
             end
 
             return
         end
 
-        if FindTrigger(text) then return end
+        -- If another prepare phrase appears while waiting, treat it as a NEW
+        -- code announcement instead of accidentally concatenating two codes.
+        local phrase, _, b = FindTrigger(text)
+        if phrase then
+            CurrentMessages = {}
+            WaitingForCode = true
+
+            local remaining = text:sub(b + 1):gsub("^[%s:%-=%.]+", "")
+            AddLog("Prepare restarted: " .. phrase)
+
+            if remaining ~= "" and remaining ~= "..." and remaining ~= "…" then
+                AddCode(remaining)
+            else
+                Status.Text = SmartRedeemerEnabled
+                    and "Prepared - waiting for message 1/5..."
+                    or "Prepared - waiting for code..."
+                Status.TextColor3 = GREEN
+            end
+            return
+        end
+
         AddCode(text)
     end
 
@@ -2123,32 +2283,78 @@ local function HandlePopup(obj)
         -- Code data resets only after the 5th captured message.
     end
 
+    local SpawnVisibleState = {}
+
     local function Hook(obj)
-        if not obj:IsA("TextLabel") or Hooked[obj] or not IsScreenUI(obj) then return end
+        if not obj:IsA("TextLabel") or Hooked[obj] or not IsScreenUI(obj) then
+            return
+        end
+
         Hooked[obj] = true
-        LastText[obj] = CleanText(obj.Text)
-        obj:GetPropertyChangedSignal("Text"):Connect(function() task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj); HandleSpawnResult(obj) end) end)
-        obj:GetPropertyChangedSignal("Visible"):Connect(function() if obj.Visible then task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj); HandleSpawnResult(obj) end) end end)
+
+        -- Do NOT swallow currently visible text when CodeSniper first attaches.
+        -- Start empty, then process the label once.
+        LastText[obj] = ""
+        SpawnVisibleState[obj] = false
+
+        obj:GetPropertyChangedSignal("Text"):Connect(function()
+            task.defer(function()
+                HandlePopup(obj)
+                HandleSmartInvalid(obj)
+                HandleSpawnResult(obj)
+            end)
+        end)
+
+        obj:GetPropertyChangedSignal("Visible"):Connect(function()
+            if obj.Visible then
+                -- Same words can legitimately be used again in a later popup.
+                LastText[obj] = ""
+                SpawnVisibleState[obj] = false
+                task.defer(function()
+                    task.wait()
+                    HandlePopup(obj)
+                    HandleSmartInvalid(obj)
+                    HandleSpawnResult(obj)
+                end)
+            else
+                -- Reset both capture and spawn dedupe when the popup disappears.
+                LastText[obj] = ""
+                SpawnVisibleState[obj] = false
+                SpawnSeenVisible[obj] = false
+                SpawnSeenText[obj] = nil
+            end
+        end)
+
+        -- Catch a trigger/code that was already on screen when script executed.
+        if obj.Visible then
+            task.defer(function()
+                HandlePopup(obj)
+                HandleSpawnResult(obj)
+            end)
+        end
     end
 
-    for _,obj in ipairs(PlayerGui:GetDescendants()) do if obj:IsA("TextLabel") then Hook(obj) end end
+    for _, obj in ipairs(PlayerGui:GetDescendants()) do
+        if obj:IsA("TextLabel") then
+            Hook(obj)
+        end
+    end
 
     PlayerGui.DescendantAdded:Connect(function(obj)
-        task.defer(function() task.wait(); UpdateDetected() end)
-        if not obj:IsA("TextLabel") then return end
+        if not obj:IsA("TextLabel") then
+            task.defer(UpdateDetected)
+            return
+        end
+
         task.defer(function()
             task.wait()
-            if not IsScreenUI(obj) then return end
-            Hooked[obj] = true
-            LastText[obj] = ""
-            obj:GetPropertyChangedSignal("Text"):Connect(function() task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj); HandleSpawnResult(obj) end) end)
-            obj:GetPropertyChangedSignal("Visible"):Connect(function() if obj.Visible then task.defer(function() HandlePopup(obj); HandleSmartInvalid(obj); HandleSpawnResult(obj) end) end end)
-            HandlePopup(obj)
+            Hook(obj)
+            UpdateDetected()
         end)
     end)
 
-    -- Fallback scanner: catches top-screen messages even if a game reuses UI
-    -- labels without firing the Text/Visible signal in the expected order.
+    -- Fallback scanner: catches UI updates that fail to emit expected signals.
+    -- It does NOT repeatedly log the same static popup.
     task.spawn(function()
         while Gui.Parent do
             UpdateDetected()
@@ -2161,18 +2367,27 @@ local function HandlePopup(obj)
 
                     if IsTopArea(obj) then
                         local current = CleanText(obj.Text)
-                        if current ~= "" and LastText[obj] ~= current then
+                        if LastText[obj] ~= current then
                             HandlePopup(obj)
                         end
                     end
 
                     if IsBottomGreenSpawnText(obj) then
                         HandleSpawnResult(obj)
+                    else
+                        -- A reused label changed away from the green spawn result.
+                        if SpawnSeenVisible[obj] and tostring(obj.Text or "") ~= "" then
+                            local currentSpawn = ExtractSpawnName(tostring(obj.Text or ""))
+                            if not currentSpawn then
+                                SpawnSeenVisible[obj] = false
+                                SpawnSeenText[obj] = nil
+                            end
+                        end
                     end
                 end
             end
 
-            task.wait(0.10)
+            task.wait(0.15)
         end
     end)
 
@@ -2211,7 +2426,7 @@ local function HandlePopup(obj)
         Loading.Visible = false
     end)
 
-    print("CodeSniper loaded - made by FTX")
+    print("CodeSniper V42 loaded - capture/preparation/webhook fixes active")
 
 end
 
