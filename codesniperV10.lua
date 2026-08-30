@@ -906,10 +906,12 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     Slider.Size = UDim2.new(1,-36,0,8); Slider.Position = UDim2.new(0,18,0,169); Slider.BackgroundColor3 = BG3; Slider.BorderSizePixel = 0
     local slc = Instance.new("UICorner", Slider); slc.CornerRadius = UDim.new(1,0)
     local Fill = Instance.new("Frame", Slider)
+    Fill.ZIndex = 6
     Fill.Size = UDim2.new((SubmitAfter-1)/4,0,1,0); Fill.BackgroundColor3 = PURPLE; Fill.BorderSizePixel = 0
     local fc = Instance.new("UICorner", Fill); fc.CornerRadius = UDim.new(1,0)
     AddAnimatedGradient(Fill, 0.012)
     local Knob = Instance.new("TextButton", Slider)
+    Knob.ZIndex = 8
     Knob.Size = UDim2.new(0,22,0,22); Knob.AnchorPoint = Vector2.new(0.5,0.5); Knob.Position = UDim2.new((SubmitAfter-1)/4,0,0.5,0)
     Knob.BackgroundColor3 = WHITE; Knob.BorderSizePixel = 0; Knob.Text = ""
     local kc = Instance.new("UICorner", Knob); kc.CornerRadius = UDim.new(1,0)
@@ -925,6 +927,19 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     PaintToggle(SmartRedeemerToggle, SmartRedeemerEnabled)
 
+    local function UpdateSliderLock()
+        local locked = SmartRedeemerEnabled == true
+        Slider.Active = not locked
+        Knob.Active = not locked
+        Knob.AutoButtonColor = not locked
+        SliderTitle.TextColor3 = locked and GRAY or WHITE
+        Number.TextColor3 = locked and GRAY or WHITE
+        Knob.BackgroundColor3 = locked and GRAY or WHITE
+        Slider.BackgroundTransparency = locked and 0.35 or 0
+    end
+
+    UpdateSliderLock()
+
     SmartRedeemerToggle.MouseButton1Click:Connect(function()
         SmartRedeemerEnabled = not SmartRedeemerEnabled
 
@@ -935,6 +950,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         end
 
         PaintToggle(SmartRedeemerToggle, SmartRedeemerEnabled)
+        UpdateSliderLock()
 
         SmartAwaitingResult = false
         SmartNeedsNextMessage = false
@@ -956,17 +972,19 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     end)
 
     local dragging = false
+
     local function SetSlider(x)
+        if SmartRedeemerEnabled then
+            dragging = false
+            return
+        end
+
         local pct = math.clamp((x-Slider.AbsolutePosition.X)/Slider.AbsoluteSize.X,0,1)
         local value = math.clamp(math.floor(pct*4+1.5),1,5)
         SubmitAfter = value
 
-        -- Moving Submit After means the user wants normal auto-redeem.
-        -- Turn it back on automatically unless Smart Redeemer owns submission.
-        if not SmartRedeemerEnabled then
-            AfterSubmitEnabled = true
-            PaintToggle(AfterSubmitToggle, true)
-        end
+        AfterSubmitEnabled = true
+        PaintToggle(AfterSubmitToggle, true)
 
         local snap = (value-1)/4
         Fill.Size = UDim2.new(snap,0,1,0)
@@ -976,10 +994,35 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         SavePreferences()
         AddLog("Submit After set to " .. tostring(value))
     end
-    Slider.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragging=true; SetSlider(i.Position.X) end end)
-    Knob.MouseButton1Down:Connect(function() dragging=true end)
-    UserInputService.InputChanged:Connect(function(i) if dragging and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then SetSlider(i.Position.X) end end)
-    UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragging=false end end)
+
+    Slider.InputBegan:Connect(function(i)
+        if SmartRedeemerEnabled then return end
+        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+            dragging=true
+            SetSlider(i.Position.X)
+        end
+    end)
+
+    Knob.MouseButton1Down:Connect(function()
+        if SmartRedeemerEnabled then return end
+        dragging=true
+    end)
+
+    UserInputService.InputChanged:Connect(function(i)
+        if SmartRedeemerEnabled then
+            dragging=false
+            return
+        end
+        if dragging and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then
+            SetSlider(i.Position.X)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+            dragging=false
+        end
+    end)
 
     -- Detection status
     local DetectStatus = Instance.new("TextLabel", SettingsBody)
@@ -1010,6 +1053,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     AddAnimatedGradient(ResetButton, 0.012)
 
     ResetButton.MouseButton1Click:Connect(function()
+        -- Fresh capture session. Keep all user settings/toggles exactly as they are.
         CurrentMessages = {}
         WaitingForCode = false
         Submitting = false
@@ -1017,6 +1061,9 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         SmartNeedsNextMessage = false
         SmartRetrying = false
         SmartAttemptId += 1
+
+        -- Forget old captured UI text so a new code can begin cleanly.
+        LastText = {}
 
         AllCaptured = {}
         for _, child in ipairs(Scroll:GetChildren()) do
@@ -1029,12 +1076,20 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         if box then
             pcall(function()
                 box.Text = ""
+                box.CursorPosition = 1
+                box.SelectionStart = -1
             end)
         end
 
-        Status.Text = "Logs reset"
-        Status.TextColor3 = GRAY
-        AddLog("Logs reset")
+        if SmartRedeemerEnabled then
+            Status.Text = PrepareEnabled
+                and "Smart reset - waiting for trigger..."
+                or "Smart reset - waiting for message 1/5..."
+            Status.TextColor3 = YELLOW
+        else
+            Status.Text = PrepareEnabled and "Waiting for code..." or "Ready to capture..."
+            Status.TextColor3 = GRAY
+        end
     end)
 
     -- Steal a Brainrot logo.
@@ -1191,59 +1246,131 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
     local function GetSpawnImageUrl(spawnName)
         local requester = GetRequestFunction()
-        if not requester then return nil end
-
-        local imageSearchQuery = tostring(spawnName) .. " Steal a brainrot"
-
-        local ok, response = pcall(function()
-            return requester({
-                Url = "https://catalog.roblox.com/v1/search/items/details?Category=1&Limit=10&Keyword="
-                    .. HttpService:UrlEncode(imageSearchQuery),
-                Method = "GET",
-                Headers = {["Accept"] = "application/json"}
-            })
-        end)
-
-        if not ok or not response then return nil end
-        local body = response.Body or response.body
-        if type(body) ~= "string" or body == "" then return nil end
-
-        local ok2, data = pcall(function()
-            return HttpService:JSONDecode(body)
-        end)
-        if not ok2 or type(data) ~= "table" or type(data.data) ~= "table" or not data.data[1] then
+        if not requester or not spawnName or spawnName == "" then
             return nil
         end
 
-        local assetId = data.data[1].id
-        if not assetId then return nil end
+        -- Search Google Images for the exact brainrot + game name.
+        -- We score candidates instead of blindly using the first result.
+        local query = "\"" .. tostring(spawnName) .. "\" \"Steal a Brainrot\""
+        local googleUrl = "https://www.google.com/search?tbm=isch&safe=active&q="
+            .. HttpService:UrlEncode(query)
 
-        local ok3, thumbResponse = pcall(function()
+        local ok, response = pcall(function()
             return requester({
-                Url = "https://thumbnails.roblox.com/v1/assets?assetIds="
-                    .. tostring(assetId)
-                    .. "&returnPolicy=PlaceHolder&size=420x420&format=Png&isCircular=false",
+                Url = googleUrl,
                 Method = "GET",
-                Headers = {["Accept"] = "application/json"}
+                Headers = {
+                    ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128 Safari/537.36",
+                    ["Accept"] = "text/html,application/xhtml+xml"
+                }
             })
         end)
 
-        if not ok3 or not thumbResponse then return nil end
-        local thumbBody = thumbResponse.Body or thumbResponse.body
-        if type(thumbBody) ~= "string" or thumbBody == "" then return nil end
+        if not ok or not response then
+            return nil
+        end
 
-        local ok4, thumbData = pcall(function()
-            return HttpService:JSONDecode(thumbBody)
-        end)
+        local status = tonumber(response.StatusCode or response.Status or 0)
+        if status ~= 0 and (status < 200 or status >= 300) then
+            return nil
+        end
 
-        if ok4 and thumbData and thumbData.data and thumbData.data[1] then
-            return thumbData.data[1].imageUrl
+        local html = response.Body or response.body
+        if type(html) ~= "string" or html == "" then
+            return nil
+        end
+
+        -- Decode the most common Google/JSON HTML escapes.
+        html = html
+            :gsub("\\u003d", "=")
+            :gsub("\\u0026", "&")
+            :gsub("\\u002f", "/")
+            :gsub("\\/", "/")
+            :gsub("&amp;", "&")
+
+        local wanted = string.lower(tostring(spawnName))
+        local bestUrl = nil
+        local bestScore = -math.huge
+        local seen = {}
+
+        local function ScoreCandidate(url, context)
+            if seen[url] then return end
+            seen[url] = true
+
+            local lowerUrl = string.lower(url)
+            local lowerContext = string.lower(context or "")
+
+            -- Ignore common Google/UI assets and tiny tracking images.
+            if lowerUrl:find("gstatic.com", 1, true)
+            or lowerUrl:find("google.com", 1, true)
+            or lowerUrl:find("googleusercontent.com/logos", 1, true)
+            or lowerUrl:find("favicon", 1, true)
+            or lowerUrl:find("sprite", 1, true)
+            or lowerUrl:find("profile", 1, true)
+            or lowerUrl:find("avatar", 1, true) then
+                return
+            end
+
+            if not (
+                lowerUrl:find(".png", 1, true)
+                or lowerUrl:find(".jpg", 1, true)
+                or lowerUrl:find(".jpeg", 1, true)
+                or lowerUrl:find(".webp", 1, true)
+            ) then
+                return
+            end
+
+            local score = 0
+
+            if lowerContext:find(wanted, 1, true) then score += 100 end
+            if lowerContext:find("steal a brainrot", 1, true) then score += 80 end
+            if lowerContext:find("brainrot", 1, true) then score += 25 end
+
+            -- Useful source hints for game-related result images.
+            if lowerContext:find("wiki", 1, true) then score += 18 end
+            if lowerContext:find("fandom", 1, true) then score += 12 end
+            if lowerContext:find("roblox", 1, true) then score += 12 end
+            if lowerContext:find("youtube", 1, true) then score += 4 end
+
+            -- Prefer actual image-looking URLs and avoid obvious generic stock sites.
+            if lowerUrl:find(wanted:gsub("%s+", ""), 1, true) then score += 10 end
+            if lowerUrl:find("stock", 1, true) then score -= 40 end
+            if lowerUrl:find("shutterstock", 1, true) then score -= 50 end
+            if lowerUrl:find("getty", 1, true) then score -= 50 end
+            if lowerUrl:find("pinterest", 1, true) then score -= 15 end
+
+            if score > bestScore then
+                bestScore = score
+                bestUrl = url
+            end
+        end
+
+        -- Google commonly exposes image result URLs inside quoted JSON/HTML strings.
+        for pos, rawUrl in html:gmatch("()https?://[^\"'%s<>]+") do
+            local url = rawUrl
+                :gsub("\\u0026", "&")
+                :gsub("\\/", "/")
+                :gsub("&amp;", "&")
+
+            local left = math.max(1, pos - 700)
+            local right = math.min(#html, pos + #rawUrl + 700)
+            local context = html:sub(left, right)
+
+            ScoreCandidate(url, context)
+        end
+
+        -- Require at least some relevance. This prevents a totally unrelated image
+        -- from being used just because Google returned it somewhere in the page.
+        if bestScore >= 60 then
+            return bestUrl
         end
 
         return nil
     end
 
-    local function MakeWebhookPayload(spawnName, playerName, count, imageUrl)
+
+    local function MakeWebhookPayload(spawnName, playerName, count, imageUrl, redeemedAt)
         local suffix = count > 1 and (" X" .. tostring(count)) or ""
 
         local embed = {
@@ -1259,6 +1386,11 @@ local SmartRedeemerToggle, SmartRedeemerLabel
                 {
                     name = "User",
                     value = "**" .. tostring(playerName) .. "**",
+                    inline = true
+                },
+                {
+                    name = "Redeemed At",
+                    value = "<t:" .. tostring(redeemedAt or os.time()) .. ":T>",
                     inline = true
                 }
             },
@@ -1281,7 +1413,27 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     end
 
 
-    local function SendOrUpdateSpawnWebhook(spawnName, playerName)
+    local SpawnWebhookMessages = {}
+    local SpawnImageCache = {}
+    local WebhookQueue = {}
+    local WebhookQueueRunning = false
+
+    local function WebhookKey(spawnName, playerName)
+        return string.lower(tostring(spawnName)) .. "\31" .. string.lower(tostring(playerName))
+    end
+
+    local function CachedSpawnImage(spawnName)
+        local key = string.lower(tostring(spawnName))
+        if SpawnImageCache[key] ~= nil then
+            return SpawnImageCache[key] or nil
+        end
+
+        local image = GetSpawnImageUrl(spawnName)
+        SpawnImageCache[key] = image or false
+        return image
+    end
+
+    local function ProcessSpawnWebhook(spawnName, playerName)
         local requester = GetRequestFunction()
         if not requester then
             AddLog("Webhook unavailable: request API missing")
@@ -1290,62 +1442,45 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
         spawnName = tostring(spawnName or ""):gsub("^%s+",""):gsub("%s+$","")
         playerName = tostring(playerName or Player.Name or "Unknown"):gsub("^%s+",""):gsub("%s+$","")
-
         if spawnName == "" then return end
         if playerName == "" then playerName = "Unknown" end
 
-        -- Stack only when BOTH the spawned thing and user are the same.
-        local sameSpawnAndUser =
-            SpawnWebhookState.name
-            and SpawnWebhookState.user
-            and string.lower(SpawnWebhookState.name) == string.lower(spawnName)
-            and string.lower(SpawnWebhookState.user) == string.lower(playerName)
-            and SpawnWebhookState.message_id ~= nil
+        local key = WebhookKey(spawnName, playerName)
+        local state = SpawnWebhookMessages[key]
+        local imageUrl = CachedSpawnImage(spawnName)
 
-        local imageUrl = GetSpawnImageUrl(spawnName)
+        if state and state.message_id then
+            state.count += 1
+            state.redeemed_at = os.time()
 
-        if sameSpawnAndUser then
-            SpawnWebhookState.count += 1
-            local payload = MakeWebhookPayload(
-                spawnName,
-                playerName,
-                SpawnWebhookState.count,
-                imageUrl
-            )
-
-            local ok = pcall(function()
-                requester({
-                    Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(SpawnWebhookState.message_id),
+            local payload = MakeWebhookPayload(spawnName, playerName, state.count, imageUrl, state.redeemed_at)
+            local ok, response = pcall(function()
+                return requester({
+                    Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(state.message_id),
                     Method = "PATCH",
                     Headers = {["Content-Type"] = "application/json"},
                     Body = HttpService:JSONEncode(payload)
                 })
             end)
 
-            if ok then
-                AddLog(
-                    "Webhook updated: "
-                    .. spawnName
-                    .. " X"
-                    .. tostring(SpawnWebhookState.count)
-                    .. " • "
-                    .. playerName
-                )
-            else
-                AddLog("Webhook update failed")
+            local status = response and tonumber(response.StatusCode or response.Status or 0) or 0
+            if ok and (status == 0 or (status >= 200 and status < 300)) then
+                AddLog("Webhook updated: " .. spawnName .. " X" .. tostring(state.count) .. " • " .. playerName)
+                return
             end
 
-            return
+            -- If the old Discord message cannot be edited anymore, create a new one.
+            state.message_id = nil
         end
 
-        -- Different spawn OR different user = new Discord message.
-        SpawnWebhookState.name = spawnName
-        SpawnWebhookState.user = playerName
-        SpawnWebhookState.count = 1
-        SpawnWebhookState.message_id = nil
+        local count = state and state.count or 1
+        if not state then
+            state = {count = 1, message_id = nil, redeemed_at = os.time()}
+            SpawnWebhookMessages[key] = state
+            count = 1
+        end
 
-        local payload = MakeWebhookPayload(spawnName, playerName, 1, imageUrl)
-
+        local payload = MakeWebhookPayload(spawnName, playerName, count, imageUrl, state.redeemed_at or os.time())
         local ok, response = pcall(function()
             return requester({
                 Url = DISCORD_WEBHOOK .. "?wait=true",
@@ -1356,7 +1491,13 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         end)
 
         if not ok or not response then
-            AddLog("Webhook send failed")
+            AddLog("Webhook send failed: " .. spawnName)
+            return
+        end
+
+        local status = tonumber(response.StatusCode or response.Status or 0)
+        if status ~= 0 and (status < 200 or status >= 300) then
+            AddLog("Webhook HTTP " .. tostring(status) .. ": " .. spawnName)
             return
         end
 
@@ -1365,12 +1506,34 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             pcall(function()
                 local decoded = HttpService:JSONDecode(body)
                 if decoded and decoded.id then
-                    SpawnWebhookState.message_id = tostring(decoded.id)
+                    state.message_id = tostring(decoded.id)
                 end
             end)
         end
 
         AddLog("Webhook sent: " .. spawnName .. " • " .. playerName)
+    end
+
+    local function RunWebhookQueue()
+        if WebhookQueueRunning then return end
+        WebhookQueueRunning = true
+
+        task.spawn(function()
+            while #WebhookQueue > 0 do
+                local job = table.remove(WebhookQueue, 1)
+                ProcessSpawnWebhook(job.spawnName, job.playerName)
+                task.wait(0.15)
+            end
+            WebhookQueueRunning = false
+        end)
+    end
+
+    local function SendOrUpdateSpawnWebhook(spawnName, playerName)
+        table.insert(WebhookQueue, {
+            spawnName = spawnName,
+            playerName = playerName
+        })
+        RunWebhookQueue()
     end
 
 
@@ -1425,27 +1588,28 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         return c.G > c.R + 0.08 and c.G > c.B + 0.05 and c.G >= 0.45
     end
 
-    local LastSpawnText = {}
+    local RecentSpawnSignals = {}
 
     local function HandleSpawnResult(obj)
         if not IsBottomGreenSpawnText(obj) then return end
 
         local raw = tostring(obj.Text or "")
-        if raw == "" or LastSpawnText[obj] == raw then return end
-        LastSpawnText[obj] = raw
-
         local spawnName = ExtractSpawnName(raw)
         if not spawnName then return end
 
-        -- This script is the one redeeming the code, so the recipient is
-        -- the LocalPlayer unless the game explicitly provides another name.
+        -- Text and Visible can fire for the same popup. Debounce only briefly,
+        -- so the exact same spawn can still be detected again on later redeems.
+        local signalKey = string.lower(raw)
+        local now = os.clock()
+        local previous = RecentSpawnSignals[signalKey]
+        if previous and now - previous < 0.85 then
+            return
+        end
+        RecentSpawnSignals[signalKey] = now
+
         local recipientName = Player.Name
-
         AddLog("Spawn detected: " .. spawnName .. " • " .. recipientName)
-
-        task.spawn(function()
-            SendOrUpdateSpawnWebhook(spawnName, recipientName)
-        end)
+        SendOrUpdateSpawnWebhook(spawnName, recipientName)
     end
 
 
@@ -1460,35 +1624,40 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         end
 
         local finalText = table.concat(CurrentMessages, "")
-
         if finalText == "" then
-            Status.Text = "No code data to redeem"
-            Status.TextColor3 = RED
             return false
         end
 
-        -- Directly write into the real CodeRedeem TextBox.
-        -- This does NOT require the Codes tab to be open or focused.
-        local wrote = pcall(function()
-            box.Text = finalText
-            box.CursorPosition = #finalText + 1
-            box.SelectionStart = -1
-        end)
-
-        if not wrote then
-            return false
+        -- IMPORTANT: never use keyboard simulation here.
+        -- Directly changing the Roblox TextBox works even when Roblox is
+        -- minimized, unfocused, or another Windows app is in front.
+        local function DirectWrite()
+            local ok = pcall(function()
+                box.Text = finalText
+                box.CursorPosition = #finalText + 1
+                box.SelectionStart = -1
+            end)
+            return ok and tostring(box.Text) == finalText
         end
 
-        -- Fire property listeners when the executor supports it.
+        local wrote = DirectWrite()
+
+        -- Notify game-side listeners without requiring OS/Roblox focus.
         if firesignal then
             pcall(function()
                 firesignal(box:GetPropertyChangedSignal("Text"))
             end)
+            pcall(function()
+                firesignal(box.FocusLost, false)
+            end)
         end
 
-        -- Some game UIs update internal state on FocusLost rather than Text changed.
-        -- Trigger those listeners without needing visible/focused UI.
         if getconnections then
+            pcall(function()
+                for _, connection in ipairs(getconnections(box:GetPropertyChangedSignal("Text"))) do
+                    connection:Fire()
+                end
+            end)
             pcall(function()
                 for _, connection in ipairs(getconnections(box.FocusLost)) do
                     connection:Fire(false)
@@ -1496,14 +1665,14 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             end)
         end
 
-        -- Write once more after callbacks in case the UI rewrote the field.
-        pcall(function()
-            box.Text = finalText
-            box.CursorPosition = #finalText + 1
-        end)
+        -- Keep enforcing the value briefly because some game UIs overwrite
+        -- their textbox during tab/menu refreshes.
+        for _ = 1, 5 do
+            DirectWrite()
+            task.wait(0.03)
+        end
 
-        print("TYPED CODE DATA:", finalText)
-        return true
+        return tostring(box.Text) == finalText
     end
 
     local function ClickSubmit()
@@ -1517,21 +1686,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
         local fired = false
 
-        -- Programmatic activation works even while the Codes tab is hidden.
-        if firesignal then
-            pcall(function()
-                firesignal(button.Activated)
-                fired = true
-            end)
-
-            if button:IsA("TextButton") then
-                pcall(function()
-                    firesignal(button.MouseButton1Click)
-                    fired = true
-                end)
-            end
-        end
-
+        -- These paths do not require Roblox to be the foreground window.
         if getconnections then
             pcall(function()
                 for _, connection in ipairs(getconnections(button.Activated)) do
@@ -1540,36 +1695,37 @@ local SmartRedeemerToggle, SmartRedeemerLabel
                 end
             end)
 
-            if button:IsA("TextButton") then
-                pcall(function()
+            pcall(function()
+                if button:IsA("TextButton") then
                     for _, connection in ipairs(getconnections(button.MouseButton1Click)) do
                         connection:Fire()
                         fired = true
                     end
-                end)
-            end
+                end
+            end)
         end
 
-        -- Roblox Activate() fallback.
+        if firesignal then
+            pcall(function()
+                firesignal(button.Activated)
+                fired = true
+            end)
+
+            pcall(function()
+                if button:IsA("TextButton") then
+                    firesignal(button.MouseButton1Click)
+                    fired = true
+                end
+            end)
+        end
+
         pcall(function()
             button:Activate()
             fired = true
         end)
 
-        -- Only use a physical click if the button is actually visible.
-        if IsVisible(button) then
-            pcall(function()
-                local pos, size = button.AbsolutePosition, button.AbsoluteSize
-                local x = math.floor(pos.X + size.X/2)
-                local y = math.floor(pos.Y + size.Y/2)
-
-                VirtualInputManager:SendMouseMoveEvent(x,y,game)
-                VirtualInputManager:SendMouseButtonEvent(x,y,0,true,game,0)
-                VirtualInputManager:SendMouseButtonEvent(x,y,0,false,game,0)
-                fired = true
-            end)
-        end
-
+        -- Do NOT depend on VirtualInputManager/mouse coordinates here:
+        -- Windows can send those to another application while Roblox is unfocused.
         return fired
     end
 
@@ -1822,52 +1978,40 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     end
 
     local function AddCode(text)
-    if not CopierEnabled or Submitting then return end
-    text = CleanText(text)
-    if IsBadText(text) then return end
+        if not CopierEnabled or Submitting then return end
 
-    if SmartRedeemerEnabled then
-        table.insert(CurrentMessages, text)
-        AddLog("Captured: " .. text)
+        text = CleanText(text)
+        if IsBadText(text) then return end
 
-        if #CurrentMessages < 3 then
-            Status.Text = "Smart captured " .. #CurrentMessages .. "/3"
-            Status.TextColor3 = GREEN
-            TypeIntoCodeBox()
-            return
-        end
+        if SmartRedeemerEnabled then
+            table.insert(CurrentMessages, text)
+            AddLog("Smart captured " .. tostring(#CurrentMessages) .. "/5: " .. text)
 
-        if #CurrentMessages <= 5 then
-            Status.Text = "SMART REDEEMING " .. #CurrentMessages .. "/5..."
-            Status.TextColor3 = (#CurrentMessages == 3) and GREEN or YELLOW
-
-            -- Force the complete accumulated code into the real TextBox.
-            local finalText = table.concat(CurrentMessages, "")
-            local box = FindCodeBox()
-
-            if not box then
-                Status.Text = "No TextBox inside CodeRedeem"
-                Status.TextColor3 = RED
+            local count = #CurrentMessages
+            if count > 5 then
+                CurrentMessages = {}
+                WaitingForCode = false
+                Status.Text = "Smart reset - waiting for new code..."
+                Status.TextColor3 = GRAY
                 return
             end
 
-            pcall(function()
-                box:CaptureFocus()
-                box.Text = finalText
-                box.CursorPosition = #finalText + 1
-                box.SelectionStart = -1
-            end)
+            Status.Text = "SMART REDEEMING " .. tostring(count) .. "/5..."
+            Status.TextColor3 = count == 5 and GREEN or YELLOW
 
-            -- Set it again immediately so no intermediate UI update can leave it blank.
-            pcall(function()
-                box.Text = finalText
-            end)
+            -- Smart Redeemer deliberately tries the accumulated code after
+            -- EVERY piece: 1, 2, 3, 4, then 5.
+            local typed = TypeIntoCodeBox()
+            if typed then
+                ClickSubmit()
+                AddLog("Smart redeem attempt " .. tostring(count) .. "/5")
+            else
+                AddLog("Smart write retry needed at " .. tostring(count) .. "/5")
+            end
 
-            -- ZERO intentional delay: redeem immediately after writing.
-            ClickSubmit()
+            if count >= 5 then
+                local box = FindCodeBox()
 
-            if #CurrentMessages == 5 then
-                -- Only reset after the 5th captured message.
                 CurrentMessages = {}
                 WaitingForCode = false
                 SmartAwaitingResult = false
@@ -1875,27 +2019,23 @@ local SmartRedeemerToggle, SmartRedeemerLabel
                 SmartRetrying = false
                 SmartAttemptId += 1
 
-                pcall(function()
-                    box.Text = ""
-                end)
+                if box then
+                    pcall(function()
+                        box.Text = ""
+                    end)
+                end
 
-                Status.Text = "Smart reset - waiting for new code..."
+                Status.Text = PrepareEnabled
+                    and "Smart reset - waiting for trigger..."
+                    or "Smart reset - waiting for message 1/5..."
                 Status.TextColor3 = GRAY
             else
-                Status.Text = "SMART ACTIVE - waiting for next message..."
+                Status.Text = "Smart active - waiting for message " .. tostring(count + 1) .. "/5..."
                 Status.TextColor3 = YELLOW
             end
 
             return
         end
-
-        -- Safety fallback. Smart mode never keeps more than 5 pieces.
-        CurrentMessages = {}
-        WaitingForCode = false
-        Status.Text = "Smart reset - waiting for new code..."
-        Status.TextColor3 = GRAY
-        return
-    end
 
     -- NORMAL REDEEMER
     table.insert(CurrentMessages, text)
@@ -2007,10 +2147,32 @@ local function HandlePopup(obj)
         end)
     end)
 
+    -- Fallback scanner: catches top-screen messages even if a game reuses UI
+    -- labels without firing the Text/Visible signal in the expected order.
     task.spawn(function()
         while Gui.Parent do
             UpdateDetected()
-            task.wait(0.25)
+
+            for _, obj in ipairs(PlayerGui:GetDescendants()) do
+                if obj:IsA("TextLabel") and IsScreenUI(obj) then
+                    if not Hooked[obj] then
+                        Hook(obj)
+                    end
+
+                    if IsTopArea(obj) then
+                        local current = CleanText(obj.Text)
+                        if current ~= "" and LastText[obj] ~= current then
+                            HandlePopup(obj)
+                        end
+                    end
+
+                    if IsBottomGreenSpawnText(obj) then
+                        HandleSpawnResult(obj)
+                    end
+                end
+            end
+
+            task.wait(0.10)
         end
     end)
 
@@ -2033,6 +2195,7 @@ local function HandlePopup(obj)
     PaintToggle(PrepareToggle, PrepareEnabled)
     PaintToggle(AfterSubmitToggle, AfterSubmitEnabled)
     PaintToggle(SmartRedeemerToggle, SmartRedeemerEnabled)
+    UpdateSliderLock()
 
     UpdateDetected()
     SavePreferences()
