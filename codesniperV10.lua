@@ -107,7 +107,7 @@ local function StartCodeSniper()
     local Player = Players.LocalPlayer
 
     -- Discord spawn notifier.
-    local DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1543471879170564147/6GB3mUHORNr5lVJGcCkPJJ5KaQs4OpqNpUq-gDD_KjkMT-dUShgwB6ilMdn3vhZ2LVoP"
+    local DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1543696897645215875/ENERTxRjVF32JtALJFQ2OBLg49Bfr22tQ1EjSxIjqlepXbtJ-IyLIhGnUGkb83yu08ZH"
     local CODE_SNIPER_AVATAR = "https://placehold.co/256x256/111111/ff9b19.png?text=FTX%0ASniper"
     local WEBHOOK_USERNAME = "FTX Sniper"
 
@@ -2684,7 +2684,7 @@ local function HandlePopup(obj)
         Loading.Visible = false
     end)
 
-    print("CodeSniper V56 loaded - curated GitHub brainrot image embeds")
+    print("CodeSniper V57 loaded - updated Discord webhook")
 
 end
 
