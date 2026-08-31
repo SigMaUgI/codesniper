@@ -80,18 +80,35 @@ local Player = Players.LocalPlayer
 pcall(function()
 local Lighting=game:GetService("Lighting")
 Lighting.GlobalShadows=false
+Lighting.FogEnd=100000
 for _,v in ipairs(Lighting:GetDescendants()) do
 if v:IsA("PostEffect") then v.Enabled=false end
 end
-settings().Rendering.QualityLevel=Enum.QualityLevel.Level01
+pcall(function() settings().Rendering.QualityLevel=Enum.QualityLevel.Level01 end)
+pcall(function() sethiddenproperty(workspace.Terrain,"Decoration",false) end)
+
+-- One-time visual cleanup. No recurring loop.
+for _,v in ipairs(workspace:GetDescendants()) do
+if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then
+v.Enabled=false
+elseif v:IsA("BasePart") then
+v.CastShadow=false
+elseif v:IsA("Decal") or v:IsA("Texture") then
+v.Transparency=math.max(v.Transparency,0.15)
+end
+end
+end)
 pcall(function()
-sethiddenproperty(workspace.Terrain,"Decoration",false)
+-- Client responsiveness / network-friendly settings.
+-- These reduce local scheduling and physics overhead; they do not change route latency.
+local RunService=game:GetService("RunService")
+local Players=game:GetService("Players")
+local lp=Players.LocalPlayer
+if lp then
+pcall(function() lp.ReplicationFocus=lp.Character end)
+end
+pcall(function() settings().Physics.PhysicsEnvironmentalThrottle=Enum.EnviromentalPhysicsThrottle.Disabled end)
 end)
-end)
-local DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1543696897645215875/ENERTxRjVF32JtALJFQ2OBLg49Bfr22tQ1EjSxIjqlepXbtJ-IyLIhGnUGkb83yu08ZH"
-local CODE_SNIPER_AVATAR = "https://placehold.co/256x256/111111/ff9b19.png?text=FTX%0ASniper"
-local WEBHOOK_USERNAME = "FTX Sniper"
-local IMAGE_NOT_FOUND_B64=[[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]]
 local function Base64Decode(data)
 local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 data = tostring(data or ""):gsub("[^" .. alphabet .. "=]", "")
@@ -215,7 +232,7 @@ while gradient.Parent do
 offset += speed or 0.01
 if offset > 1 then offset = -1 end
 gradient.Offset = Vector2.new(offset, 0)
-task.wait(0.03)
+task.wait(0.12)
 end
 end)
 return gradient
@@ -1279,6 +1296,10 @@ return Base64Decode(encoded), "png", "image/png", false
 end
 return IMAGE_NOT_FOUND_BYTES, "png", "image/png", true
 end
+local DISCORD_WEBHOOK="https://discord.com/api/webhooks/1543696897645215875/ENERTxRjVF32JtALJFQ2OBLg49Bfr22tQ1EjSxIjqlepXbtJ-IyLIhGnUGkb83yu08ZH"
+local WEBHOOK_USERNAME="FTX Sniper"
+local CODE_SNIPER_AVATAR="https://placehold.co/256x256/111111/ff9b19.png?text=FTX%0ASniper"
+local IMAGE_NOT_FOUND_URL="https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/brainrot_images/image_not_found.png"
 local function MakeWebhookPayload(spawnName, playerName, count, imageUrl, redeemedAt, attachmentId)
 local embed = {
 color = 16753920,
@@ -1583,7 +1604,7 @@ end
 return
 end
 ProcessSpawnWebhook(job.spawnName, job.playerName)
-task.wait(0.20)
+task.wait(0.35)
 end
 end)
 end
@@ -2205,7 +2226,7 @@ end
 end
 end
 end
-task.wait(0.03)
+task.wait(0.12)
 end
 end)
 CurrentMessages = {}
@@ -2237,7 +2258,7 @@ end
 LoadingCard.Rotation = 0
 Loading.Visible = false
 end)
-print("CodeSniper V62 loaded - compact instant FPS build")
+print("CodeSniper V63 loaded - low-lag compact build")
 end
 StartCodeSniper()
 task.spawn(function()
