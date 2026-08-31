@@ -77,38 +77,6 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local Player = Players.LocalPlayer
-pcall(function()
-local Lighting=game:GetService("Lighting")
-Lighting.GlobalShadows=false
-Lighting.FogEnd=100000
-for _,v in ipairs(Lighting:GetDescendants()) do
-if v:IsA("PostEffect") then v.Enabled=false end
-end
-pcall(function() settings().Rendering.QualityLevel=Enum.QualityLevel.Level01 end)
-pcall(function() sethiddenproperty(workspace.Terrain,"Decoration",false) end)
-
--- One-time visual cleanup. No recurring loop.
-for _,v in ipairs(workspace:GetDescendants()) do
-if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then
-v.Enabled=false
-elseif v:IsA("BasePart") then
-v.CastShadow=false
-elseif v:IsA("Decal") or v:IsA("Texture") then
-v.Transparency=math.max(v.Transparency,0.15)
-end
-end
-end)
-pcall(function()
--- Client responsiveness / network-friendly settings.
--- These reduce local scheduling and physics overhead; they do not change route latency.
-local RunService=game:GetService("RunService")
-local Players=game:GetService("Players")
-local lp=Players.LocalPlayer
-if lp then
-pcall(function() lp.ReplicationFocus=lp.Character end)
-end
-pcall(function() settings().Physics.PhysicsEnvironmentalThrottle=Enum.EnviromentalPhysicsThrottle.Disabled end)
-end)
 local function Base64Decode(data)
 local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 data = tostring(data or ""):gsub("[^" .. alphabet .. "=]", "")
@@ -2258,7 +2226,7 @@ end
 LoadingCard.Rotation = 0
 Loading.Visible = false
 end)
-print("CodeSniper V63 loaded - low-lag compact build")
+print("CodeSniper V64 loaded - compact no-FPS-tweaks build")
 end
 StartCodeSniper()
 task.spawn(function()
