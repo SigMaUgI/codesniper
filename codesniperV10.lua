@@ -1507,15 +1507,19 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         "https://raw.githubusercontent.com/SigMaUgI/codesniper/refs/heads/main/brainrot_images/"
 
     local CURATED_BRAINROT_IMAGES = {
-        ["hydra bunny"] = "brainrot_01.png",
-        ["hydra dragon"] = "brainrot_01.png",
-
+        -- Exact supplied names -> exact supplied photos.
         ["dragon cannelloni"] = "brainrot_02.png",
-        ["dragon"] = "brainrot_02.png",
-
-        ["la breakfast combinasion"] = "brainrot_08.png",
-        ["breakfast combinasion"] = "brainrot_08.png",
-        ["breakfast combination"] = "brainrot_08.png",
+        ["cerberus"] = "brainrot_01.png",
+        ["la breakfast combinasion"] = "brainrot_03.png",
+        ["celestial pegasus"] = "brainrot_06.png",
+        ["capitano moby"] = "brainrot_07.png",
+        ["burguro and fryuro"] = "brainrot_09.png",
+        ["pizza and ranch"] = "brainrot_10.png",
+        ["la fuse machine"] = "brainrot_11.png",
+        ["cangurato gelato"] = "brainrot_13.png",
+        ["yetimatic"] = "brainrot_14.png",
+        ["cash or card"] = "brainrot_12.png",
+        ["arcadragon"] = "brainrot_05.png",
     }
 
     local function NormalizeBrainrotName(name)
@@ -1980,7 +1984,15 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
 
     local function ExtractSpawnName(rawText)
-        local t = tostring(rawText or ""):gsub("^%s+",""):gsub("%s+$","")
+        local t = tostring(rawText or "")
+
+        -- Keep only what the player actually sees.
+        -- Removes Roblox RichText such as:
+        -- <font color="#ff0000">Dragon Cannelloni</font>
+        -- <color>...</color>, <b>, <stroke>, etc.
+        t = t:gsub("<[^>]->", "")
+        t = t:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&amp;", "&")
+        t = t:gsub("^%s+",""):gsub("%s+$","")
 
         local name =
             t:match("^%((.-)%)%s+[Ss][Pp][Aa][Ww][Nn][Ee][Dd]")
@@ -1990,12 +2002,12 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         if not name then return nil end
 
         name = tostring(name)
+            :gsub("<[^>]->", "")
             :gsub("^%s+","")
             :gsub("%s+$","")
             :gsub("^%c","")
             :gsub("%c$","")
 
-        -- Strip wrapping single/double quotes without fragile Lua patterns.
         local firstChar = string.sub(name, 1, 1)
         if firstChar == "\"" or firstChar == "'" then
             name = string.sub(name, 2)
@@ -2006,7 +2018,7 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             name = string.sub(name, 1, -2)
         end
 
-
+        name = name:gsub("^%s+",""):gsub("%s+$","")
         return name ~= "" and name or nil
     end
 
@@ -2161,13 +2173,8 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             end)
         end
 
-        -- Keep enforcing the value briefly because some game UIs overwrite
-        -- their textbox during tab/menu refreshes.
-        for _ = 1, 5 do
-            DirectWrite()
-            task.wait(0.03)
-        end
-
+        -- Zero-delay mode: one final synchronous write and return immediately.
+        DirectWrite()
         return tostring(box.Text) == finalText
     end
 
@@ -2226,10 +2233,9 @@ local SmartRedeemerToggle, SmartRedeemerLabel
     end
 
     local function SpamSubmit()
-        -- Fire immediately; tiny task yields only let Roblox process callbacks.
-        for _=1,10 do
+        -- Zero-delay mode: fire every submit callback synchronously.
+        for _ = 1, 10 do
             ClickSubmit()
-            task.wait()
         end
     end
 
@@ -2501,7 +2507,6 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             if typed then
                 for _ = 1, 3 do
                     ClickSubmit()
-                    task.wait()
                 end
                 AddLog("Smart redeem attempt " .. tostring(count) .. "/5")
             else
@@ -2810,7 +2815,7 @@ local function HandlePopup(obj)
         Loading.Visible = false
     end)
 
-    print("CodeSniper V58 loaded - real Discord image attachments")
+    print("CodeSniper V60 loaded - instant redeem + exact brainrot image map")
 
 end
 
