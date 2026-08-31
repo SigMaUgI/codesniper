@@ -1747,13 +1747,11 @@ local SmartRedeemerToggle, SmartRedeemerLabel
 
         spawnName = tostring(spawnName or ""):gsub("^%s+",""):gsub("%s+$","")
         playerName = tostring(playerName or Player.Name or "Unknown"):gsub("^%s+",""):gsub("%s+$","")
-
         if spawnName == "" then return end
         if playerName == "" then playerName = "Unknown" end
 
         local key = WebhookKey(spawnName, playerName)
         local state = SpawnWebhookMessages[key]
-
         if not state then
             state = {
                 count = 0,
@@ -1766,14 +1764,15 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         state.count += 1
         state.redeemed_at = os.time()
 
-        local imageUrl = GetCuratedBrainrotImage(spawnName) or IMAGE_NOT_FOUND_URL
-        state.image_url = imageUrl
-
-        local payload = MakeWebhookPayload(
+        ------------------------------------------------------------
+        -- 1) ALWAYS SEND THE TEXT MESSAGE FIRST.
+        -- Image lookup/upload can never stop the notification.
+        ------------------------------------------------------------
+        local textPayload = MakeWebhookPayload(
             spawnName,
             playerName,
             state.count,
-            imageUrl,
+            nil,
             state.redeemed_at,
             nil
         )
@@ -1782,8 +1781,8 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             local updateOk = DoWebhookRequest(requester, {
                 Url = DISCORD_WEBHOOK .. "/messages/" .. tostring(state.message_id),
                 Method = "PATCH",
-                Headers = {["Content-Type"] = "application/json"},
-                Body = HttpService:JSONEncode(payload)
+                Headers = { ["Content-Type"] = "application/json" },
+                Body = HttpService:JSONEncode(textPayload)
             })
 
             if updateOk then
@@ -1797,8 +1796,8 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         local sendOk, sendResponse, sendErr = DoWebhookRequest(requester, {
             Url = DISCORD_WEBHOOK .. "?wait=true",
             Method = "POST",
-            Headers = {["Content-Type"] = "application/json"},
-            Body = HttpService:JSONEncode(payload)
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = HttpService:JSONEncode(textPayload)
         })
 
         if not sendOk then
@@ -1807,10 +1806,10 @@ local SmartRedeemerToggle, SmartRedeemerLabel
             return
         end
 
-        local body = sendResponse and (sendResponse.Body or sendResponse.body) or ""
-        if type(body) == "string" and body ~= "" then
+        local responseBody = sendResponse and (sendResponse.Body or sendResponse.body) or ""
+        if type(responseBody) == "string" and responseBody ~= "" then
             pcall(function()
-                local decoded = HttpService:JSONDecode(body)
+                local decoded = HttpService:JSONDecode(responseBody)
                 if decoded and decoded.id then
                     state.message_id = tostring(decoded.id)
                 end
@@ -1818,6 +1817,133 @@ local SmartRedeemerToggle, SmartRedeemerLabel
         end
 
         AddLog("Sent: " .. spawnName)
+
+        ------------------------------------------------------------
+        -- 2) SEND A REAL DISCORD FILE ATTACHMENT IN A SECOND MESSAGE.
+        ------------------------------------------------------------
+        task.spawn(function()
+            local imageBytes, ext, mime = nil, nil, nil
+
+            -- Prefer a curated image URL when one exists.
+            local curatedUrl = nil
+            pcall(function()
+                curatedUrl = GetCuratedBrainrotImage and GetCuratedBrainrotImage(spawnName) or nil
+            end)
+
+            if curatedUrl then
+                pcall(function()
+                    imageBytes, ext, mime = DownloadImageBytes(curatedUrl)
+                end)
+            end
+
+            -- Otherwise Google: <brainrot name> Steal a Brainrot
+            if not imageBytes then
+                pcall(function()
+                    local googleImage = GetSpawnImageUrl(spawnName)
+                    if googleImage then
+                        imageBytes, ext, mime = DownloadImageBytes(googleImage)
+                    end
+                end)
+            end
+
+            -- Guaranteed local fallback stored inside the Lua itself.
+            if not imageBytes or imageBytes == "" then
+                imageBytes = IMAGE_NOT_FOUND_BYTES
+                ext = "png"
+                mime = "image/png"
+            end
+
+            ext = tostring(ext or "png")
+            mime = tostring(mime or "image/png")
+            local filename = "brainrot." .. ext
+
+            local attachmentPayload = {
+                username = WEBHOOK_USERNAME,
+                avatar_url = CODE_SNIPER_AVATAR,
+                embeds = {
+                    {
+                        image = { url = "attachment://" .. filename },
+                        footer = { text = "FTX Sniper" }
+                    }
+                },
+                attachments = {
+                    {
+                        id = 0,
+                        filename = filename
+                    }
+                }
+            }
+
+            local multipartBody, contentType = BuildMultipartBody(
+                attachmentPayload,
+                imageBytes,
+                filename,
+                mime
+            )
+
+            -- Normal exploit request format.
+            local uploadOk = select(1, DoWebhookRequest(requester, {
+                Url = DISCORD_WEBHOOK .. "?wait=true",
+                Method = "POST",
+                Headers = { ["Content-Type"] = contentType },
+                Body = multipartBody
+            }))
+
+            -- Some executors only accept lowercase option names.
+            if not uploadOk then
+                local ok, response = pcall(function()
+                    return requester({
+                        url = DISCORD_WEBHOOK .. "?wait=true",
+                        method = "POST",
+                        headers = { ["Content-Type"] = contentType },
+                        body = multipartBody
+                    })
+                end)
+
+                if ok and response then
+                    local status = tonumber(response.StatusCode or response.Status or response.status_code or response.status or 0)
+                    uploadOk = status == 0 or (status >= 200 and status < 300)
+                end
+            end
+
+            -- Last display fallback: if file upload is unsupported by this executor,
+            -- make Discord render a public URL so the picture is still visible.
+            if not uploadOk then
+                local displayUrl = curatedUrl
+
+                if not displayUrl then
+                    pcall(function()
+                        displayUrl = GetSpawnImageUrl(spawnName)
+                    end)
+                end
+
+                if not displayUrl or displayUrl == "" then
+                    displayUrl = IMAGE_NOT_FOUND_URL
+                end
+
+                local fallbackPayload = {
+                    username = WEBHOOK_USERNAME,
+                    avatar_url = CODE_SNIPER_AVATAR,
+                    embeds = {
+                        {
+                            image = { url = displayUrl },
+                            footer = { text = "FTX Sniper" }
+                        }
+                    }
+                }
+
+                local fallbackOk = select(1, DoWebhookRequest(requester, {
+                    Url = DISCORD_WEBHOOK,
+                    Method = "POST",
+                    Headers = { ["Content-Type"] = "application/json" },
+                    Body = HttpService:JSONEncode(fallbackPayload)
+                }))
+
+                if not fallbackOk then
+                    AddLog("Image send failed")
+                end
+            end
+        end)
     end
 
     local function RunWebhookQueue()
@@ -2684,7 +2810,7 @@ local function HandlePopup(obj)
         Loading.Visible = false
     end)
 
-    print("CodeSniper V57 loaded - updated Discord webhook")
+    print("CodeSniper V58 loaded - real Discord image attachments")
 
 end
 
