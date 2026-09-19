@@ -1,5 +1,5 @@
 {
-  "version": 1787207662800,
+  "version": 1789846057903,
   "allowed_users": [
     {
       "user_id": "2912583992",
@@ -40,6 +40,14 @@
     {
       "user_id": "3200814634",
       "username": "Hehocoke"
+    },
+    {
+      "user_id": "11660142349",
+      "username": "ftx_codesniper"
+    },
+    {
+      "user_id": "11667679020",
+      "username": "easymoneylols"
     }
   ]
 }
